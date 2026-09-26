@@ -37,6 +37,15 @@ jobs:
         working-directory: web
         run: npm run sync:ocr
 
+      # PaddleOCR 模型已随仓库入库（web/public/ocr/paddle/），这一步只是兜底自愈。
+      # 刻意不阻断构建：2026-09-26 因为模型只能从外部 CDN 拉、runner 拉不到，
+      # 导致 prebuild 失败、整站 9 分钟没更新。模型拉不到时工作台应回退
+      # Tesseract，而不是把整站拖下线。
+      - name: Ensure PaddleOCR models (non-blocking)
+        working-directory: web
+        run: npm run sync:paddle
+        continue-on-error: true
+
       - name: Validate samples, Markdown and typography
         working-directory: web
         run: npm run validate:all

@@ -22,7 +22,7 @@ import {
 import { ACCOUNT_CLASSES, ACCOUNT_ENTRIES, ACCOUNTING_BASICS, answerAccountingQuestion, classifyAccount } from '../lib/accounting-data'
 import { ELEMENT_INPUTS, PROFIT_EXAMPLE, PROFIT_INPUTS, checkAccountingEquations, computeProfitChain, formatMoney } from '../lib/profit-calculator'
 import { JOURNAL_ENTRY_RULES, JOURNAL_GROUPS, buildEntry, checkBalanced, lineKey, matchJournalRules } from '../lib/journal-entries'
-import { recognizeVoucherImage, terminateOcr } from '../lib/ocr'
+import { assessImage, recognizeVoucherImage, terminateOcr } from '../lib/ocr'
 import { processCredential, disposeAllEngines, ENGINE_IDS } from '../ocr/pipeline/credential-pipeline'
 import { RELIABILITY_BANDS } from '../ocr/confidence/reliability'
 import { FIELD_LABELS as OCR_FIELD_LABELS } from '../ocr/validators/field-validators'
@@ -79,13 +79,28 @@ const structuredStatus = ref('')
 const engineChoice = ref('paddle')
 const showCells = ref(false)
 const structuredBusy = ref(false)
+const qualityOverride = ref(false)
+const paddleMissing = ref(false)
+const qualityChecking = ref(false)
+// 质量闸门前移后，"是否放行 OCR"变成用户的显式选择，而不是默默识别
+const qualityBlocker = computed(() => imageQuality.value?.level === 'poor')
+const qualityGateText = computed(() => {
+  const q = imageQuality.value
+  if (!q) return ''
+  return `照片质量不足（${q.score} 分）：${q.reasons.join('；')}。继续识别可能造成字段缺失。`
+})
 
 const bandType = (band) => RELIABILITY_BANDS.find((b) => b.id === band)?.type || 'info'
 const bandLabelOf = (band) => RELIABILITY_BANDS.find((b) => b.id === band)?.label || '需要人工复核'
 const reliabilityPct = (value) => `${Math.round((value || 0) * 100)}%`
 
-async function runStructuredOcr() {
+async function runStructuredOcr(force = false) {
   if (!voucherFile.value || structuredBusy.value) return
+  if (qualityBlocker.value && !force) {
+    qualityOverride.value = true
+    return
+  }
+  qualityOverride.value = false
   structuredBusy.value = true
   structuredRunning.value = true
   structuredStatus.value = '准备识别'
@@ -95,6 +110,7 @@ async function runStructuredOcr() {
       engine: engineChoice.value,
       reRecognize: true,
       reRecognizeLimit: 3,
+      forceWhenPoor: true,
       onProgress: ({ progress, status }) => {
         structuredStatus.value = status
         ocrProgress.value = Math.round(progress * 100)
@@ -103,10 +119,15 @@ async function runStructuredOcr() {
     structured.value = result
     ocrProgress.value = 100
     structuredStatus.value = `识别完成 · ${result.processingTime} ms · 定向重识别 ${result.reRecognized} 个字段`
-    // 旧路径的结果保留在 voucherText 里供人工对照，不覆盖
     if (result.fields.length) ocrConfidence.value = Math.round((result.summary.overall || 0) * 100)
   } catch (error) {
-    structuredStatus.value = `识别失败：${error.message || error}`
+    // 模型缺失是可预期的降级场景，要说清楚怎么办，而不是抛一堆 WASM 报错
+    if (error?.code === 'PADDLE_MODELS_MISSING') {
+      structuredStatus.value = 'PaddleOCR 模型未随站点部署，本次未识别。可改用 Tesseract 继续，准确率较低但可用。'
+      paddleMissing.value = true
+    } else {
+      structuredStatus.value = `识别失败：${error.message || error}`
+    }
   } finally {
     structuredRunning.value = false
     structuredBusy.value = false
@@ -233,7 +254,7 @@ function clearVoucherImage() {
   voucherFile.value = null
   fileInput.value.value = ''
 }
-function handleVoucherFile(file) {
+async function handleVoucherFile(file) {
   if (!file) return
   if (voucherPreview.value) URL.revokeObjectURL(voucherPreview.value)
   voucherFile.value = file
@@ -245,6 +266,20 @@ function handleVoucherFile(file) {
   ocrStatus.value = ''
   structured.value = null
   structuredStatus.value = ''
+  paddleMissing.value = false
+  // 质量闸门前移：选图后立刻评估，不等 OCR 跑完。
+  // 目的是让用户在"识别之前"就知道这张图值不值得识别。
+  qualityChecking.value = true
+  try {
+    if (typeof assessImage !== 'function') throw new Error('assessImage 未正确导入')
+    imageQuality.value = await assessImage(file)
+  } catch (error) {
+    // 质量评估失败不能挡住用户识别，只是不显示闸门
+    imageQuality.value = null
+    console.warn('拍摄质量评估失败，已跳过闸门：', error)
+  } finally {
+    qualityChecking.value = false
+  }
 }
 function handleFileChange(event) {
   handleVoucherFile(event.target.files?.[0])
@@ -390,10 +425,18 @@ onBeforeUnmount(() => {
                 <div v-else class="voucher-image-box"><img :src="voucherPreview" alt="会计凭证预览" /><div class="voucher-image-actions"><span>{{ voucherFile?.name }} · {{ (voucherFile?.size / 1024).toFixed(0) }} KB</span><div><el-button size="small" text @click="fileInput?.click()">更换</el-button><el-button size="small" text type="danger" @click="resetVoucher"><el-icon><Delete /></el-icon>清除</el-button></div></div></div>
                 <div class="flex-between mt-16 flex-wrap"><div class="flex-wrap"><el-button type="primary" :disabled="!voucherFile" :loading="ocrRunning" @click="runOcr"><el-icon><Camera /></el-icon>{{ ocrRunning ? '识别中' : '开始本地识别' }}</el-button><el-button plain :disabled="ocrRunning" @click="loadVoucherSample('complete')">载入完整样例</el-button><el-button plain :disabled="ocrRunning" @click="loadVoucherSample('uppercase')">大写金额样例</el-button><el-button plain :disabled="ocrRunning" @click="loadVoucherSample('incomplete')">载入缺失样例</el-button></div><span v-if="ocrStatus" class="text-muted text-small">{{ ocrStatus }}</span></div>
                 <el-progress v-if="ocrRunning" class="mt-12" :percentage="ocrProgress" :stroke-width="8" />
-                <div v-if="imageQuality" class="quality-gate" :class="`is-${imageQuality.level}`">
+                <div v-if="qualityChecking" class="quality-gate is-checking"><div class="quality-head"><span class="text-muted text-small">正在检查照片质量…</span></div></div>
+                <div v-else-if="imageQuality" class="quality-gate" :class="`is-${imageQuality.level}`">
                   <div class="quality-head"><el-tag :type="qualityTagType" effect="light" size="small">{{ qualityTagText }}</el-tag><span class="text-muted text-small">清晰度 {{ imageQuality.metrics.sharpness.toFixed(0) }} · 对比度 {{ imageQuality.metrics.std.toFixed(0) }} · 亮度 {{ imageQuality.metrics.mean.toFixed(0) }}<template v-if="imageQuality.metrics.skewDeg > 0.4"> · 倾斜 {{ imageQuality.metrics.skewDeg.toFixed(1) }}°</template></span></div>
                   <ul v-if="imageQuality.reasons.length"><li v-for="reason in imageQuality.reasons" :key="reason">{{ reason }}</li></ul>
                   <ul v-else class="quality-advice"><li v-for="tip in imageQuality.advice" :key="tip">{{ tip }}</li></ul>
+                  <div v-if="qualityBlocker" class="quality-block">
+                    <p>{{ qualityGateText }}</p>
+                    <div class="flex-wrap">
+                      <el-button size="small" @click="fileInput?.click()">重新拍摄</el-button>
+                      <el-button size="small" type="warning" plain @click="runStructuredOcr(true)">仍要继续识别</el-button>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="structured-entry mt-16">
@@ -403,10 +446,15 @@ onBeforeUnmount(() => {
                       <el-radio-button value="paddle">PaddleOCR PP-OCRv5</el-radio-button>
                       <el-radio-button value="tesseract">Tesseract</el-radio-button>
                     </el-radio-group>
-                    <el-button type="primary" size="small" :disabled="!voucherFile || structuredBusy" :loading="structuredRunning" @click="runStructuredOcr">逐字段识别</el-button>
+                    <el-button type="primary" size="small" :disabled="!voucherFile || structuredBusy" :loading="structuredRunning" @click="runStructuredOcr(false)">逐字段识别</el-button>
                   </div>
                   <p class="text-muted text-small">先定位字段位置再识别，每个字段单独给可靠度。首次使用 Paddle 需下载约 20.6MB 模型，图片始终留在本机。</p>
+                  <div v-if="paddleMissing" class="quality-gate is-warn mt-12">
+                    <p>PaddleOCR 模型未随站点部署，本次未识别。可以改用 Tesseract 继续，准确率较低但可用；或在本地执行 <code>npm run sync:paddle</code> 后重新构建。</p>
+                    <el-button size="small" @click="engineChoice = 'tesseract'">改用 Tesseract</el-button>
+                  </div>
                   <div v-if="structuredBusy" class="text-muted text-small">正在识别：{{ structuredStatus }}（{{ ocrProgress }}%）</div>
+                  <div v-else-if="qualityBlocker && !qualityOverride" class="text-muted text-small">照片质量不足，已暂缓识别。可在上面的提示里选择重新拍摄或仍要继续。</div>
                   <div v-else-if="structuredStatus && !structured" class="text-muted text-small">{{ structuredStatus }}</div>
                 </div>
 
@@ -715,6 +763,9 @@ onBeforeUnmount(() => {
 .quality-gate ul { margin: 8px 0 0; padding-left: 17px; color: var(--ink-500); font-size: 0.75rem; line-height: 1.65; }
 .quality-gate li + li { margin-top: 3px; }
 .quality-advice { list-style: none; padding-left: 0 !important; }
+.quality-gate.is-checking { color: var(--ink-500); }
+.quality-block { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--line-strong); }
+.quality-block p { margin: 0 0 8px; color: var(--ink-700); font-size: 0.8125rem; line-height: 1.6; }
 .structured-entry { padding: 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: rgba(245,248,252,.5); }
 .structured-head { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
 .structured-head strong { color: var(--ink-900); font-size: 0.9375rem; }

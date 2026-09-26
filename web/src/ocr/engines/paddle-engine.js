@@ -37,6 +37,34 @@ export function paddleAssetManifest() {
 }
 
 /**
+ * 模型是否已随站点部署。
+ * 站点可能在拉不到模型的情况下正常部署（此时回退 Tesseract），
+ * 所以这里要能在初始化之前就给出明确原因，而不是让用户等 4 秒后看一堆 WASM 报错。
+ */
+export async function paddleModelStatus() {
+  const checks = await Promise.all(
+    paddleAssetManifest().map(async (asset) => {
+      try {
+        const res = await fetch(asset.url, { method: 'HEAD' })
+        return { name: asset.name, ok: res.ok, approxBytes: asset.approxBytes }
+      } catch {
+        return { name: asset.name, ok: false, approxBytes: asset.approxBytes }
+      }
+    })
+  )
+  const missing = checks.filter((c) => !c.ok)
+  return {
+    ready: missing.length === 0,
+    checks,
+    missing: missing.map((c) => c.name)
+  }
+}
+
+export const PADDLE_MISSING_HINT =
+  'PaddleOCR 模型未随站点部署（需约 20.6MB）。可以改用 Tesseract 继续识别，准确率较低但可用；' +
+  '或在本地执行 npm run sync:paddle 后重新构建。'
+
+/**
  * @param {object} options
  * @param {'wasm'|'webgpu'} [options.backend] 默认 wasm；webgpu 更快但兼容性窄
  * @param {boolean} [options.worker] 是否放进 Worker（避免阻塞 Vue 主线程）
@@ -44,6 +72,13 @@ export function paddleAssetManifest() {
  */
 export async function initPaddle(options = {}) {
   if (instance) return instance
+  const status = await paddleModelStatus()
+  if (!status.ready) {
+    const error = new Error(`PaddleOCR 模型缺失：${status.missing.join('、')}。${PADDLE_MISSING_HINT}`)
+    error.code = 'PADDLE_MODELS_MISSING'
+    error.missing = status.missing
+    throw error
+  }
   const PaddleOCR = await loadSdk()
   const backend = options.backend === 'webgpu' ? 'webgpu' : 'wasm'
   instance = await PaddleOCR.create({

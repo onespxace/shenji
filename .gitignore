@@ -13,7 +13,13 @@ release/
 # 它们是 node_modules/tesseract.js* 与 resources/vendor/ocr 的拷贝，
 # 由 `npm run sync:ocr`（predev / prebuild / CI 会自动执行）生成，
 # 因此不入库，避免仓库体积翻倍。真正的模型源文件在 resources/vendor/ocr/。
-web/public/ocr/
+#
+# 例外：PaddleOCR 的 PP-OCRv5 模型（20.55 MB）**入库**。
+# 原因：它只能从外部 CDN（paddle-model-ecology.bj.bcebos.com）拉取，
+# 而 GitHub Actions runner 拉不到时会导致 prebuild 失败、整站不更新
+# （2026-09-26 实际发生过一次）。入库后 CI 不再依赖任何外部模型源。
+web/public/ocr/*
+!web/public/ocr/paddle/
 
 # 日志与临时文件
 *.log

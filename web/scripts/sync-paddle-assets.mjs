@@ -39,6 +39,7 @@ function isComplete(name) {
 export async function syncPaddleAssets({ force = false } = {}) {
   mkdirSync(targetDir, { recursive: true })
   const summary = []
+  const failures = []
   for (const model of MODELS) {
     const file = localPath(model.name)
     if (!force && isComplete(model.name)) {
@@ -46,30 +47,54 @@ export async function syncPaddleAssets({ force = false } = {}) {
       continue
     }
     const url = `${BASE}/${model.name}.tar`
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`下载 ${model.name} 失败：HTTP ${res.status}`)
-    await pipeline(Readable.fromWeb(res.body), createWriteStream(file))
-    const bytes = statSync(file).size
-    if (Math.abs(bytes - model.bytes) > 1024) {
-      throw new Error(`${model.name} 大小异常：期望 ${model.bytes}，实际 ${bytes}`)
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), Number(process.env.PADDLE_SYNC_TIMEOUT_MS || 180000))
+      const res = await fetch(url, { signal: controller.signal })
+      clearTimeout(timer)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      await pipeline(Readable.fromWeb(res.body), createWriteStream(file))
+      const bytes = statSync(file).size
+      if (Math.abs(bytes - model.bytes) > 1024) {
+        throw new Error(`大小异常：期望 ${model.bytes}，实际 ${bytes}`)
+      }
+      summary.push({ name: model.name, status: 'downloaded', bytes })
+    } catch (error) {
+      // 半截文件不能留下，否则下次会被当成"已存在"
+      try { if (existsSync(file)) (await import('node:fs')).unlinkSync(file) } catch { /* 忽略 */ }
+      failures.push({ name: model.name, reason: error.message || String(error) })
     }
-    summary.push({ name: model.name, status: 'downloaded', bytes })
   }
-  return summary
+  return { summary, failures, targetDir }
 }
 
 if (process.argv[1] && process.argv[1].endsWith('sync-paddle-assets.mjs')) {
-  const force = process.argv.includes('--force')
-  syncPaddleAssets({ force })
-    .then((rows) => {
-      for (const row of rows) {
+  // 默认「失败可降级」：拉不到 Paddle 模型不应该让整站构建失败。
+  // 工作台仍有 Tesseract 可用，页面会提示改用 Tesseract。
+  // 需要严格模式时显式加 --strict（本地排障用）。
+  const strict = process.argv.includes('--strict')
+  syncPaddleAssets({ force: process.argv.includes('--force') })
+    .then(({ summary, failures, targetDir }) => {
+      for (const row of summary) {
         console.log(`${row.status === 'exists' ? '已存在' : '已下载'} ${row.name}  ${(row.bytes / 1024 / 1024).toFixed(2)} MB`)
       }
-      const total = rows.reduce((sum, row) => sum + row.bytes, 0)
-      console.log(`合计 ${(total / 1024 / 1024).toFixed(2)} MB → ${targetDir}`)
+      if (!failures.length) {
+        const total = summary.reduce((sum, row) => sum + row.bytes, 0)
+        console.log(`合计 ${(total / 1024 / 1024).toFixed(2)} MB → ${targetDir}`)
+        return
+      }
+      const detail = failures.map((f) => `${f.name}: ${f.reason}`).join('；')
+      if (strict) {
+        console.error(`PaddleOCR 模型同步失败：${detail}`)
+        process.exit(1)
+      }
+      console.warn(`[警告] PaddleOCR 模型同步失败：${detail}`)
+      console.warn('[警告] 站点仍会正常部署，凭证识别将回退到 Tesseract。')
+      console.warn('[警告] 如需 PaddleOCR，请手动执行：npm run sync:paddle -- --strict')
     })
     .catch((error) => {
       console.error(`同步失败：${error.message || error}`)
-      process.exit(1)
+      if (strict) process.exit(1)
+      console.warn('[警告] 站点仍会正常部署，凭证识别将回退到 Tesseract。')
     })
 }
