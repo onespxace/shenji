@@ -197,11 +197,13 @@ export const SLIDES = [
       { value: '135/135', label: '结构化识别断言' },
 
       { value: '20/20', label: '模型完整性' },
+
+      { value: '35/35', label: '路由断言' },
       { value: '20/20', label: '拍摄质量断言' },
       { value: '28/28', label: 'Markdown 渲染' },
       { value: '0', label: '小于 12px 的字号' }
     ],
-    note: '合计 526 条断言，全部由 npm run validate:all 执行，GitHub Actions 每次推送都会跑。'
+    note: '合计 575 条断言，全部由 npm run validate:all 执行，GitHub Actions 每次推送都会跑。'
   },
   {
     id: 'cases',

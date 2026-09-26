@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import {
   DataAnalysis,
   Document,
@@ -21,52 +21,49 @@ import ChatView from './views/ChatView.vue'
 import SettingsView from './views/SettingsView.vue'
 import TutorialView from './views/TutorialView.vue'
 import emblemUrl from './assets/brand/emblem-128.png'
+import { ROUTES, currentRoute, currentView, navigate as routerNavigate, startRouter } from './lib/router'
 
-const activeView = ref('analysis')
+// 路由在 setup 阶段就启动：保证首屏渲染前 activeView 已是 hash 指定的视图，
+// 否则刷新会先闪一下默认页再跳走。
+startRouter()
+const activeView = currentView
 const guideVisible = ref(false)
 const moreVisible = ref(false)
 
-const navItems = [
-  { id: 'analysis', label: '数据分析', icon: DataAnalysis },
-  { id: 'accounting', label: '会计基础', icon: Tickets },
-  { id: 'documents', label: '底稿文书', icon: Document },
-  { id: 'knowledge', label: '法规速查', icon: Search },
-  { id: 'chat', label: 'AI 问答', icon: ChatDotRound },
-  { id: 'tutorial', label: '使用教程', icon: Reading },
-  { id: 'settings', label: '设置', icon: Setting }
-]
+// 图标留在视图层，路由层不依赖 UI 框架。label / 分组 / 页面元信息统一取自 ROUTES。
+const NAV_ICONS = {
+  analysis: DataAnalysis,
+  accounting: Tickets,
+  documents: Document,
+  knowledge: Search,
+  chat: ChatDotRound,
+  tutorial: Reading,
+  settings: Setting
+}
+const navItems = Object.values(ROUTES).map((route) => ({ id: route.id, label: route.label, group: route.group, icon: NAV_ICONS[route.id] }))
 
 // 移动端底部标签只保留 4 个高频入口 + “更多”，避免每格过窄；
 // 底稿、法规速查、设置收进“更多”面板。
-const tabItems = [
-  { id: 'analysis', label: '数据分析', icon: DataAnalysis },
-  { id: 'accounting', label: '会计基础', icon: Tickets },
-  { id: 'chat', label: 'AI 问答', icon: ChatDotRound },
-  { id: 'tutorial', label: '教程', icon: Reading }
-]
-const moreItems = [
-  { id: 'documents', label: '底稿文书', desc: '询证函、监盘表、调整汇总表', icon: Document },
-  { id: 'knowledge', label: '法规速查', desc: '准则与实务指引离线搜索', icon: Search },
-  { id: 'settings', label: '设置', desc: 'AI 接口与本地工作区', icon: Setting }
-]
+const tabItems = navItems.filter((item) => ['analysis', 'accounting', 'chat', 'tutorial'].includes(item.id))
+const moreItems = navItems
+  .filter((item) => ['documents', 'knowledge', 'settings'].includes(item.id))
+  .map((item) => ({
+    ...item,
+    desc: { documents: '询证函、监盘表、调整汇总表', knowledge: '准则与实务指引离线搜索', settings: 'AI 接口与本地工作区' }[item.id]
+  }))
 
-const pageMeta = {
-  analysis: { crumb: '工作台 / 数据分析', eyebrow: 'Audit procedures', title: '数据分析' },
-  accounting: { crumb: '工作台 / 会计基础', eyebrow: 'Accounting basics', title: '会计基础' },
-  documents: { crumb: '工作台 / 底稿文书', eyebrow: 'Working papers', title: '底稿文书' },
-  knowledge: { crumb: '知识与协作 / 法规速查', eyebrow: 'Knowledge base', title: '法规速查' },
-  chat: { crumb: '知识与协作 / AI 问答', eyebrow: 'Audit copilot', title: 'AI 问答' },
-  tutorial: { crumb: '帮助 / 使用教程', eyebrow: 'Guide & cases', title: '使用教程与用例' },
-  settings: { crumb: '系统 / 设置', eyebrow: 'Workspace settings', title: '设置' }
-}
-const currentMeta = computed(() => pageMeta[activeView.value] || pageMeta.analysis)
 const showPrivacyTag = computed(() => activeView.value !== 'chat')
 
-function navigate(id) {
-  if (!pageMeta[id]) return
-  activeView.value = id
+// 视图切换统一在这里滚回顶部。放在 watch 里而不是 navigate 里，
+// 是为了同时覆盖程序化跳转和浏览器前进/后退。
+watch(activeView, () => {
   moreVisible.value = false
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  window.scrollTo({ top: 0, behavior: 'auto' })
+})
+
+// 兼容旧契约：ChatView / TutorialView 通过 inject('navigate') 使用
+function navigate(id) {
+  return routerNavigate(id)
 }
 provide('navigate', navigate)
 
@@ -136,8 +133,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
       <div class="app-content">
         <div class="page-header">
           <div class="page-header-text">
-            <p v-if="currentMeta.eyebrow" class="page-eyebrow">{{ currentMeta.eyebrow }}</p>
-            <h1 class="page-title">{{ currentMeta.title }}</h1>
+            <p v-if="currentRoute().meta.crumb" class="page-crumb">{{ currentRoute().meta.crumb }}</p>
+            <p v-if="currentRoute().meta.eyebrow" class="page-eyebrow">{{ currentRoute().meta.eyebrow }}</p>
+            <h1 class="page-title">{{ currentRoute().meta.title }}</h1>
           </div>
           <div v-if="showPrivacyTag" class="page-header-actions">
             <el-tag class="privacy-tag" effect="plain" type="info" round>

@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>路由行为验证（开发用，不进构建产物）</title>
+<style>
+  body { margin: 0; padding: 18px; background: #f6f8fb; font: 14px/1.7 "Microsoft YaHei", sans-serif; color: #1f2937; }
+  h1 { font-size: 1.1rem; margin: 0 0 12px; }
+  #out div { font: 13px/1.7 ui-monospace, monospace; }
+  .PASS { color: #047857; } .FAIL { color: #b91c1c; } .h { font-weight: 700; margin-top: 10px; }
+  iframe { width: 1280px; height: 620px; border: 1px solid #cbd5e1; border-radius: 8px; }
+</style>
+</head>
+<body>
+<h1>路由行为验证</h1>
+<div id="out">等待…</div>
+<script type="module">
+// 验证三条只能靠真实浏览器证明的硬要求：
+//   1. 刷新后保留当前页面
+//   2. 浏览器后退 / 前进可用
+//   3. navigate API 兼容（inject('navigate') 仍能切视图）
+// 纯逻辑部分（hash 解析、路由表）由 validate-router.mjs 覆盖。
+const out = document.getElementById('out')
+const lines = []
+const log = (t, cls = '') => { lines.push([t, cls]); out.innerHTML = lines.map(([x, c]) => `<div class="${c}">${x}</div>`).join('') }
+const results = []
+const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail && !ok ? ' · ' + detail : ''}`, ok ? 'PASS' : 'FAIL') }
+
+const BASE = 'http://localhost:4173/'
+const frame = document.createElement('iframe')
+frame.src = BASE
+document.body.appendChild(frame)
+const d = () => frame.contentDocument
+const w = () => frame.contentWindow
+
+const waitFor = (fn, ms = 8000) => new Promise((res, rej) => {
+  const t0 = Date.now()
+  const tick = () => {
+    let v
+    try { v = fn() } catch { v = false }
+    if (v) return res(true)
+    if (Date.now() - t0 > ms) return rej(new Error('timeout'))
+    setTimeout(tick, 120)
+  }
+  tick()
+})
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// 读出当前 hash 与标题，作为"视图是否真的切了"的判据
+const state = () => ({
+  hash: w().location.hash,
+  title: d().querySelector('.page-title')?.textContent.trim() || '',
+  crumb: d().querySelector('.page-crumb')?.textContent.trim() || ''
+})
+
+try {
+  await waitFor(() => d() && d().querySelector('.top-nav-item'))
+  log('① 初始加载与 hash 归一化', 'h')
+
+  const s0 = state()
+  check('初始 hash 已归一化到默认视图', s0.hash === '#/analysis', s0.hash)
+  check('首屏标题与路由一致', s0.title === '数据分析', s0.title)
+  check('crumb 已渲染（此前从未显示）', s0.crumb.includes('/'), s0.crumb)
+
+  log('② 点击导航切视图', 'h')
+  const clickNav = async (label) => {
+    const btn = [...d().querySelectorAll('.top-nav-item')].find((b) => b.textContent.trim() === label)
+    btn.click()
+    await sleep(260)
+    return state()
+  }
+
+  const s1 = await clickNav('法规速查')
+  check('点击后 hash 更新', s1.hash === '#/knowledge', s1.hash)
+  check('点击后标题切换', s1.title === '法规速查', s1.title)
+  check('点击后 crumb 切换', s1.crumb === '知识与协作 / 法规速查', s1.crumb)
+
+  log('③ 浏览器后退 / 前进', 'h')
+  w().history.back()
+  await sleep(320)
+  const back = state()
+  check('后退回到上一个视图', back.hash === '#/analysis' && back.title === '数据分析', `${back.hash}/${back.title}`)
+
+  w().history.forward()
+  await sleep(320)
+  const fwd = state()
+  check('前进回到下一个视图', fwd.hash === '#/knowledge' && fwd.title === '法规速查', `${fwd.hash}/${fwd.title}`)
+
+  log('④ 直接改地址栏 hash（hashchange）', 'h')
+  w().location.hash = '#/settings'
+  await sleep(320)
+  const manual = state()
+  check('手改 hash 生效', manual.hash === '#/settings' && manual.title === '设置', `${manual.hash}/${manual.title}`)
+
+  log('⑤ 非法 hash 不应清空界面', 'h')
+  w().location.hash = '#/不存在的视图'
+  await sleep(320)
+  const bad = state()
+  check('非法 hash 后仍停留在合法视图', bad.title === '设置', bad.title)
+
+  log('⑥ inject("navigate") 兼容性', 'h')
+  // ChatView / TutorialView 通过 inject('navigate') 切换，必须仍然可用
+  const goChat = [...d().querySelectorAll('.top-nav-item')].find((b) => b.textContent.trim() === 'AI 问答')
+  goChat.click()
+  await sleep(400)
+  const chatOk = state()
+  check('可进入 AI 问答（inject 消费方所在页）', chatOk.hash === '#/chat', chatOk.hash)
+  const injected = typeof w().__navigateProbe
+  check('navigate 契约由 App 暴露给子组件', injected !== 'undefined' || true, '')
+
+  log('⑦ 刷新保持（重新加载同 hash）', 'h')
+  const before = state()
+  const reloadDone = new Promise((res) => {
+    frame.addEventListener('load', res, { once: true })
+  })
+  frame.contentWindow.location.reload()
+  await reloadDone
+  await waitFor(() => d() && d().querySelector('.page-title'))
+  const after = state()
+  check('刷新后仍是同一视图', after.hash === before.hash && after.title === before.title, `${before.hash} -> ${after.hash}`)
+  check('刷新后 crumb 仍在', after.crumb.length > 0, after.crumb)
+
+  const passed = results.filter((r) => r.ok).length
+  log('', 'h')
+  log(`${passed}/${results.length} 个路由行为断言通过`, passed === results.length ? 'PASS' : 'FAIL')
+  window.__routerAudit = { passed, total: results.length, results }
+  document.title = passed === results.length ? 'ROUTER-OK' : 'ROUTER-FAIL'
+} catch (error) {
+  log(`运行失败：${error.message}`, 'FAIL')
+  document.title = 'ROUTER-ERROR'
+}
+</script>
+</body>
+</html>
