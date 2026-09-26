@@ -113,6 +113,48 @@ const zeroTotal = validateVoucherText([
 ].join('\n'))
 check('空合计行不覆盖分录行', zeroTotal.checks.find((i) => i.id === 'balance')?.status === 'pass', JSON.stringify(zeroTotal.extracted.amounts))
 
+// --- 逐字段置信度：低置信字段必须降级为 warn，且不能给出"形式完整" ---
+// 构造一份字段齐全、但签名区被识别成乱码的场景（实测中"王五"被读成"EA"，置信度 56）
+const goodText = [
+  '记账凭证',
+  '2024年5月3日',
+  '凭证编号：记字001号',
+  '摘要：收到股东投资款',
+  '银行存款 1002 借方金额 300000.00',
+  '实收资本 4001 贷方金额 300000.00',
+  '合计',
+  '附件：2张',
+  '制单：张三 审核：李四 记账：EA'
+].join('\n')
+const wordsOf = (overrides = {}) => Object.entries({
+  '记账凭证': 95, '2024年5月3日': 92, '记字001号': 90, '收到股东投资款': 88,
+  '银行存款': 91, '1002': 93, '实收资本': 89, '4001': 93, '300000.00': 94,
+  '合计': 86, '附件': 90, '制单': 92, '张三': 90, '审核': 92, '李四': 90, '记账': 92, 'EA': 56,
+  ...overrides
+}).map(([text, confidence]) => ({ text, confidence }))
+
+const withHighConf = validateVoucherText(goodText, { words: wordsOf(), fieldWarnThreshold: 78 })
+check('高置信字段不产生低置信清单', withHighConf.lowConfidenceFields.length === 1, JSON.stringify(withHighConf.lowConfidenceFields))
+check('低置信字段被单独标出', withHighConf.lowConfidenceFields[0]?.id === 'signatures', JSON.stringify(withHighConf.lowConfidenceFields))
+check('低置信字段的检查项降级为 warn', withHighConf.checks.find((i) => i.id === 'signatures')?.status === 'warn', withHighConf.checks.find((i) => i.id === 'signatures')?.status)
+check('低置信字段提示中含置信度数值', withHighConf.checks.find((i) => i.id === 'signatures')?.detail.includes('56%'), withHighConf.checks.find((i) => i.id === 'signatures')?.detail)
+check('关键字段低置信时不得判为形式完整', withHighConf.status !== 'complete', withHighConf.status)
+check('低置信提示写入 notes', withHighConf.notes.some((n) => n.includes('置信度偏低') && n.includes('责任签名')), withHighConf.notes[0])
+check('置信度清单包含各字段数值', withHighConf.fieldConfidences.some((i) => i.id === 'date' && i.confidence === 92), JSON.stringify(withHighConf.fieldConfidences.slice(0, 3)))
+
+// 无置信度数据时行为不变（手工粘贴文本不应被降级）
+const noWords = validateVoucherText(goodText)
+check('无置信度数据时不降级', noWords.lowConfidenceFields.length === 0 && noWords.fieldConfidences.length === 0, JSON.stringify(noWords.lowConfidenceFields))
+check('无置信度数据时金额等仍可判通过', noWords.checks.find((i) => i.id === 'debit')?.status === 'pass', noWords.checks.find((i) => i.id === 'debit')?.status)
+
+// 阈值可调：把阈值提到 95，应有更多字段被标出
+const strict = validateVoucherText(goodText, { words: wordsOf(), fieldWarnThreshold: 95 })
+check('提高阈值后低置信字段变多', strict.lowConfidenceFields.length > withHighConf.lowConfidenceFields.length, `${strict.lowConfidenceFields.length} > ${withHighConf.lowConfidenceFields.length}`)
+
+// 全部高置信时才允许 complete
+const allHigh = validateVoucherText(goodText, { words: wordsOf({ EA: 96 }), fieldWarnThreshold: 78 })
+check('全部高置信时给出完整结论', allHigh.lowConfidenceFields.length === 0 && allHigh.status === 'complete', `${allHigh.status} / ${JSON.stringify(allHigh.lowConfidenceFields)}`)
+
 for (const item of results) console.log(`${item.passed ? 'PASS' : 'FAIL'} ${item.name}${item.detail ? ` · ${item.detail}` : ''}`)
 const passed = results.filter((item) => item.passed).length
 console.log(`\n${passed}/${results.length} 个会计基础与凭证检查断言通过`)

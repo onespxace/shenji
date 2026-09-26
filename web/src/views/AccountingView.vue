@@ -8,16 +8,20 @@ import {
   Cpu,
   Delete,
   DocumentChecked,
+  EditPen,
   Files,
   InfoFilled,
   MagicStick,
   Refresh,
   Search,
   Tickets,
+  TrendCharts,
   UploadFilled,
   WarningFilled
 } from '@element-plus/icons-vue'
 import { ACCOUNT_CLASSES, ACCOUNT_ENTRIES, ACCOUNTING_BASICS, answerAccountingQuestion, classifyAccount } from '../lib/accounting-data'
+import { ELEMENT_INPUTS, PROFIT_EXAMPLE, PROFIT_INPUTS, checkAccountingEquations, computeProfitChain, formatMoney } from '../lib/profit-calculator'
+import { JOURNAL_ENTRY_RULES, JOURNAL_GROUPS, buildEntry, checkBalanced, lineKey, matchJournalRules } from '../lib/journal-entries'
 import { recognizeVoucherImage, terminateOcr } from '../lib/ocr'
 import { COMPLETE_VOUCHER_SAMPLE, INCOMPLETE_VOUCHER_SAMPLE, UPPERCASE_VOUCHER_SAMPLE, validateVoucherText } from '../lib/voucher-validator'
 
@@ -36,6 +40,8 @@ const ocrRunning = ref(false)
 const ocrProgress = ref(0)
 const ocrStatus = ref('')
 const ocrConfidence = ref(null)
+const ocrWords = ref(null)
+const imageQuality = ref(null)
 const fileInput = ref(null)
 const dragActive = ref(false)
 
@@ -53,6 +59,110 @@ const filteredAccounts = computed(() => {
 const accountClassCounts = computed(() => Object.fromEntries(ACCOUNT_CLASSES.map((item) => [item.id, ACCOUNT_ENTRIES.filter((account) => account.classId === item.id).length])))
 const voucherStatusText = computed(() => ({ complete: '形式要素基本完整', review: '需要人工复核', incomplete: '存在缺失或不平衡' }[voucherResult.value?.status] || '尚未检查'))
 const voucherStatusType = computed(() => ({ complete: 'success', review: 'warning', incomplete: 'danger' }[voucherResult.value?.status] || 'info'))
+// 逐字段置信度：只列出"需要重点核对"的字段，避免整屏都是徽标
+const lowConfidenceList = computed(() => voucherResult.value?.lowConfidenceFields || [])
+const fieldConfidenceMap = computed(() => Object.fromEntries((voucherResult.value?.fieldConfidences || []).map((item) => [item.id, item.confidence])))
+const qualityTagType = computed(() => ({ good: 'success', warn: 'warning', poor: 'danger' }[imageQuality.value?.level] || 'info'))
+const qualityTagText = computed(() => {
+  const q = imageQuality.value
+  if (!q) return ''
+  return { good: '画质良好', warn: '画质一般', poor: '画质不足，建议重拍' }[q.level] + `（${q.score} 分）`
+})
+
+// ---------------- 利润计算器 ----------------
+const profitInputs = ref({ ...PROFIT_EXAMPLE })
+const showProfitExample = ref(true)
+const elementInputs = ref({ assets: '', liabilities: '', equity: '', revenue: '', expense: '' })
+
+const profitResult = computed(() => computeProfitChain(profitInputs.value))
+const equationResult = computed(() => checkAccountingEquations(elementInputs.value))
+const profitInputGroups = computed(() => {
+  const labels = { main: '主营业务', other: '其他业务', expense: '期间费用', invest: '投资', nonOp: '营业外', tax: '所得税' }
+  return Object.entries(labels).map(([id, label]) => ({ id, label, items: PROFIT_INPUTS.filter((item) => item.group === id) }))
+})
+const profitFilledLabel = computed(() => `${profitResult.value.filledCount}/${profitResult.value.totalInputs}`)
+
+function loadProfitExample() {
+  profitInputs.value = { ...PROFIT_EXAMPLE }
+  showProfitExample.value = true
+}
+function clearProfitInputs() {
+  profitInputs.value = {}
+  showProfitExample.value = false
+}
+
+// ---------------- 分录生成器 ----------------
+const entryQuery = ref('')
+const selectedRuleId = ref('')
+const entryAmount = ref('')
+const entrySide = ref('debit')
+const entryPicks = ref([])
+
+const entryHits = computed(() => matchJournalRules(entryQuery.value))
+const groupedRules = computed(() => JOURNAL_GROUPS.map((group) => ({ group, rules: JOURNAL_ENTRY_RULES.filter((rule) => rule.group === group) })))
+const selectedRule = computed(() => JOURNAL_ENTRY_RULES.find((rule) => rule.id === selectedRuleId.value) || null)
+const entryPreview = computed(() => (selectedRule.value ? buildEntry(selectedRule.value, { amount: entryAmount.value, side: entrySide.value, picks: entryPicks.value }) : null))
+const entryBalance = computed(() => (entryPreview.value ? checkBalanced(entryPreview.value.lines) : null))
+const activePicks = computed(() => (selectedRule.value ? (entryPicks.value.length ? entryPicks.value : selectedRule.value.lines.map(lineKey)) : []))
+
+const entryQuickQueries = [
+  '收到股东投资款',
+  '购买原材料',
+  '计提应付职工薪酬',
+  '计提坏账准备',
+  '确认销售收入',
+  '结转销售成本',
+  '收到货款',
+  '偿还应付账款',
+  '计算应缴增值税',
+  '偿还长期借款'
+]
+
+function selectRule(rule) {
+  selectedRuleId.value = rule.id
+  entryPicks.value = []
+  entryAmount.value = ''
+  entrySide.value = rule.lines[0]?.side === 'debit' ? 'debit' : 'debit'
+}
+function useEntryQuery(text) {
+  entryQuery.value = text
+  const hits = matchJournalRules(text)
+  if (hits.length) selectRule(hits[0].rule)
+}
+function togglePick(key) {
+  const list = activePicks.value
+  entryPicks.value = list.includes(key) ? list.filter((item) => item !== key) : [...list, key]
+}
+const allPicked = computed(() => selectedRule.value && activePicks.value.length === selectedRule.value.lines.length)
+function togglePickAll() {
+  if (!selectedRule.value) return
+  entryPicks.value = allPicked.value ? [] : selectedRule.value.lines.map(lineKey)
+}
+// 把备查式规则按互斥组分块展示：同组只能选一行，不加提示用户会以为"都要记"
+const pickSections = computed(() => {
+  const rule = selectedRule.value
+  if (!rule) return []
+  const byAlt = new Map()
+  const loose = []
+  for (const line of rule.lines) {
+    if (line.alt) {
+      if (!byAlt.has(line.alt)) byAlt.set(line.alt, [])
+      byAlt.get(line.alt).push(line)
+    } else {
+      loose.push(line)
+    }
+  }
+  const sections = [...byAlt.entries()].map(([label, lines]) => ({ label, lines, exclusive: true }))
+  if (loose.length) sections.push({ label: '', lines: loose, exclusive: false })
+  // 未标注的备查规则：借方或贷方多于一行时兜底提示
+  if (!byAlt.size && rule.lines.length > 2) {
+    return [{ label: '原图为备查式写法，按实际业务只取对应行', lines: rule.lines, exclusive: true }]
+  }
+  return sections
+})
+function pickSectionCount(section) {
+  return section.lines.filter((line) => activePicks.value.includes(lineKey(line))).length
+}
 
 function runClassification() {
   accountResult.value = classifyAccount(accountInput.value)
@@ -86,6 +196,9 @@ function handleVoucherFile(file) {
   voucherPreview.value = URL.createObjectURL(file)
   voucherResult.value = null
   ocrConfidence.value = null
+  ocrWords.value = null
+  imageQuality.value = null
+  ocrStatus.value = ''
 }
 function handleFileChange(event) {
   handleVoucherFile(event.target.files?.[0])
@@ -109,7 +222,11 @@ async function runOcr() {
     })
     voucherText.value = result.text
     ocrConfidence.value = Math.round(result.confidence || 0)
-    ocrStatus.value = `识别完成，置信度约 ${ocrConfidence.value}%`
+    ocrWords.value = result.words
+    imageQuality.value = result.quality
+    ocrStatus.value = result.quality?.level === 'poor'
+      ? `识别完成，但这张图画质不足（${result.quality.score} 分），错误率会明显偏高，请优先重拍`
+      : `识别完成，置信度约 ${ocrConfidence.value}%`
   } catch (error) {
     ocrStatus.value = `识别失败：${error.message || error}`
   } finally {
@@ -117,7 +234,10 @@ async function runOcr() {
   }
 }
 function checkVoucher() {
-  voucherResult.value = validateVoucherText(voucherText.value, { ocrConfidence: ocrConfidence.value })
+  voucherResult.value = validateVoucherText(voucherText.value, {
+    ocrConfidence: ocrConfidence.value,
+    words: ocrWords.value
+  })
 }
 function loadVoucherSample(type) {
   clearVoucherImage()
@@ -129,6 +249,8 @@ function loadVoucherSample(type) {
   const sample = samples[type] || samples.complete
   voucherText.value = sample.text
   ocrConfidence.value = null
+  ocrWords.value = null
+  imageQuality.value = null
   voucherResult.value = null
   ocrStatus.value = sample.label
 }
@@ -139,6 +261,8 @@ function resetVoucher() {
   ocrProgress.value = 0
   ocrStatus.value = ''
   ocrConfidence.value = null
+  ocrWords.value = null
+  imageQuality.value = null
 }
 onBeforeUnmount(() => {
   if (voucherPreview.value) URL.revokeObjectURL(voucherPreview.value)
@@ -218,18 +342,24 @@ onBeforeUnmount(() => {
                 <div v-else class="voucher-image-box"><img :src="voucherPreview" alt="会计凭证预览" /><div class="voucher-image-actions"><span>{{ voucherFile?.name }} · {{ (voucherFile?.size / 1024).toFixed(0) }} KB</span><div><el-button size="small" text @click="fileInput?.click()">更换</el-button><el-button size="small" text type="danger" @click="resetVoucher"><el-icon><Delete /></el-icon>清除</el-button></div></div></div>
                 <div class="flex-between mt-16 flex-wrap"><div class="flex-wrap"><el-button type="primary" :disabled="!voucherFile" :loading="ocrRunning" @click="runOcr"><el-icon><Camera /></el-icon>{{ ocrRunning ? '识别中' : '开始本地识别' }}</el-button><el-button plain :disabled="ocrRunning" @click="loadVoucherSample('complete')">载入完整样例</el-button><el-button plain :disabled="ocrRunning" @click="loadVoucherSample('uppercase')">大写金额样例</el-button><el-button plain :disabled="ocrRunning" @click="loadVoucherSample('incomplete')">载入缺失样例</el-button></div><span v-if="ocrStatus" class="text-muted text-small">{{ ocrStatus }}</span></div>
                 <el-progress v-if="ocrRunning" class="mt-12" :percentage="ocrProgress" :stroke-width="8" />
+                <div v-if="imageQuality" class="quality-gate" :class="`is-${imageQuality.level}`">
+                  <div class="quality-head"><el-tag :type="qualityTagType" effect="light" size="small">{{ qualityTagText }}</el-tag><span class="text-muted text-small">清晰度 {{ imageQuality.metrics.sharpness.toFixed(0) }} · 对比度 {{ imageQuality.metrics.std.toFixed(0) }} · 亮度 {{ imageQuality.metrics.mean.toFixed(0) }}<template v-if="imageQuality.metrics.skewDeg > 0.4"> · 倾斜 {{ imageQuality.metrics.skewDeg.toFixed(1) }}°</template></span></div>
+                  <ul v-if="imageQuality.reasons.length"><li v-for="reason in imageQuality.reasons" :key="reason">{{ reason }}</li></ul>
+                  <ul v-else class="quality-advice"><li v-for="tip in imageQuality.advice" :key="tip">{{ tip }}</li></ul>
+                </div>
               </el-card>
               <el-card class="surface inner-surface mt-16" shadow="never">
                 <div class="surface-header"><div><h3 class="surface-title">识别文字（可校对）</h3><p class="surface-subtitle">OCR 结果仅作为线索，请在检查前核对日期、金额和科目。</p></div><el-button size="small" type="primary" plain :disabled="!voucherText.trim()" @click="checkVoucher"><el-icon><MagicStick /></el-icon>检查凭证</el-button></div>
                 <el-input v-model="voucherText" type="textarea" :rows="10" resize="vertical" placeholder="识别后的文字会显示在这里，也可以直接粘贴凭证文字进行形式检查。" />
-                <div v-if="ocrConfidence !== null" class="text-muted text-small mt-12">OCR 置信度：{{ ocrConfidence }}%</div>
+                <div v-if="ocrConfidence !== null" class="text-muted text-small mt-12">OCR 置信度：{{ ocrConfidence }}%<span v-if="ocrWords?.length"> · 已提取 {{ ocrWords.length }} 个词用于逐字段判定</span></div>
               </el-card>
             </div>
             <div>
               <el-card v-if="voucherResult" class="surface inner-surface voucher-result-card" shadow="never">
                 <div class="surface-header"><div><h3 class="surface-title">形式检查结果</h3><p class="surface-subtitle">完整性、科目识别与借贷平衡</p></div><el-tag :type="voucherStatusType" effect="light">{{ voucherStatusText }}</el-tag></div>
                 <div class="score-row"><el-progress type="dashboard" :percentage="voucherResult.score" :width="116" :color="voucherResult.score >= 90 ? '#18a999' : voucherResult.score >= 60 ? '#d08a1d' : '#d9534f'"><template #default="{ percentage }"><strong class="score-number">{{ percentage }}</strong><span class="score-label">完整度</span></template></el-progress><div class="score-copy"><div v-if="voucherResult.missing.length" class="missing-title"><el-icon><WarningFilled /></el-icon>缺少或未通过：</div><div v-if="voucherResult.missing.length" class="missing-chips"><el-tag v-for="item in voucherResult.missing" :key="item" type="danger" size="small" effect="light">{{ item }}</el-tag></div><div v-else class="missing-title success-text"><el-icon><CircleCheckFilled /></el-icon>未发现形式要素缺失</div><p v-if="voucherResult.warnings.length" class="text-muted text-small">需留意：{{ voucherResult.warnings.join('、') }}</p></div></div>
-                <div class="check-list"><div v-for="check in voucherResult.checks" :key="check.id" class="check-row"><el-icon :class="check.status === 'pass' ? 'check-pass' : check.status === 'warn' ? 'check-warn' : 'check-fail'"><CircleCheckFilled v-if="check.status === 'pass'" /><WarningFilled v-else-if="check.status === 'warn'" /><InfoFilled v-else /></el-icon><div><strong>{{ check.label }}</strong><span>{{ check.detail }}</span></div></div></div>
+                <div v-if="lowConfidenceList.length" class="low-confidence-block"><div class="section-kicker"><el-icon><WarningFilled /></el-icon>识别置信度偏低，请重点核对</div><div class="low-confidence-list"><div v-for="item in lowConfidenceList" :key="item.id" class="low-confidence-item"><strong>{{ item.label }}</strong><el-tag type="warning" size="small" effect="light">{{ item.confidence }}%</el-tag></div></div><p class="text-muted text-small">这些字段里有字被认错的风险。点对应条目可在本页对照左侧识别文字逐字修正后再检查。</p></div>
+                <div class="check-list"><div v-for="check in voucherResult.checks" :key="check.id" class="check-row"><el-icon :class="check.status === 'pass' ? 'check-pass' : check.status === 'warn' ? 'check-warn' : 'check-fail'"><CircleCheckFilled v-if="check.status === 'pass'" /><WarningFilled v-else-if="check.status === 'warn'" /><InfoFilled v-else /></el-icon><div><strong>{{ check.label }}</strong><span>{{ check.detail }}</span></div><el-tag v-if="fieldConfidenceMap[check.id] !== undefined && (check.status !== 'fail' || fieldConfidenceMap[check.id] < 78)" size="small" effect="plain" :type="fieldConfidenceMap[check.id] < 78 ? 'warning' : 'info'">识别 {{ fieldConfidenceMap[check.id] }}%</el-tag></div></div>
                 <div v-if="voucherResult.extracted.accounts.length" class="extracted-block"><div class="section-kicker">识别到的科目</div><div class="account-tag-list"><el-tag v-for="account in voucherResult.extracted.accounts" :key="account.code" size="small" effect="plain">{{ account.code }} {{ account.name }} · {{ account.className }}</el-tag></div></div>
                 <div v-if="voucherResult.extracted.amounts.debit !== null" class="extracted-block"><div class="section-kicker">金额</div><div class="amount-row"><span>借方合计 <strong>{{ voucherResult.extracted.amounts.debit.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</strong></span><span>贷方合计 <strong>{{ voucherResult.extracted.amounts.credit.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</strong></span><span>差额 <strong>{{ voucherResult.extracted.amounts.difference.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</strong></span></div></div>
                 <div class="manual-note"><el-icon><InfoFilled /></el-icon><span>{{ voucherResult.notes.join(' ') }}</span></div>
@@ -252,6 +382,142 @@ onBeforeUnmount(() => {
             </el-card>
             <div class="basics-side">
               <el-card v-for="item in ACCOUNTING_BASICS.slice(0, 4)" :key="item.id" class="surface inner-surface" shadow="never"><div class="basics-card-title"><el-icon><Collection /></el-icon><strong>{{ item.question }}</strong></div><p>{{ item.answer }}</p></el-card>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane name="profit">
+          <template #label><span class="tab-label"><el-icon><TrendCharts /></el-icon>利润计算</span></template>
+          <div class="profit-layout">
+            <el-card class="surface inner-surface" shadow="never">
+              <div class="surface-header"><div><h3 class="surface-title">利润计算器</h3><p class="surface-subtitle">只填最底层的收入、成本、费用和税率，上层利润自动推出来。</p></div><div class="flex-wrap"><el-button size="small" plain @click="loadProfitExample">载入示例</el-button><el-button size="small" plain @click="clearProfitInputs">清空</el-button></div></div>
+              <div class="profit-inputs">
+                <div v-for="group in profitInputGroups" :key="group.id" class="profit-input-group">
+                  <div class="section-kicker">{{ group.label }}</div>
+                  <div class="profit-field-list">
+                    <label v-for="item in group.items" :key="item.id" class="profit-field">
+                      <span class="profit-field-label">{{ item.label }}<em v-if="item.unit">{{ item.unit }}</em></span>
+                      <el-input v-model="profitInputs[item.id]" :placeholder="item.unit === '%' ? '如 25' : '0.00'" inputmode="decimal"><template v-if="item.unit" #suffix>{{ item.unit }}</template></el-input>
+                      <span class="profit-field-hint">{{ item.hint }}</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <p class="text-muted text-small mt-12">已填 {{ profitFilledLabel }} 项。留空的项目不参与计算，也不会被当成 0 —— 依赖它的结果会标为「待补数据」。</p>
+            </el-card>
+            <el-card class="surface inner-surface" shadow="never">
+              <div class="surface-header"><div><h3 class="surface-title">计算过程</h3><p class="surface-subtitle">按步骤从主营业务利润一路推到净利润。</p></div><el-tag v-if="!profitResult.complete" type="warning" effect="light">缺 {{ profitResult.missingCount }} 项</el-tag><el-tag v-else-if="profitResult.hasLoss" type="danger" effect="light">本期亏损</el-tag><el-tag v-else type="success" effect="light">已算完</el-tag></div>
+              <ol class="formula-chain">
+                <li v-for="step in profitResult.steps" :key="step.id" class="formula-step" :class="step.status">
+                  <div class="formula-step-head"><strong>{{ step.label }}</strong><span v-if="step.status === 'ok'" class="formula-value" :class="{ 'is-loss': step.value < 0 }">{{ formatMoney(step.value) }}</span><span v-else class="formula-pending">待补 {{ step.missing.length }} 项</span></div>
+                  <code class="formula-expr">{{ step.expression }}</code>
+                  <div v-if="step.status === 'incomplete'" class="formula-missing">缺：{{ step.missing.join('、') }}</div>
+                  <div v-if="step.note" class="formula-note"><el-icon><InfoFilled /></el-icon>{{ step.note }}</div>
+                </li>
+              </ol>
+              <div v-if="profitResult.netProfit !== null" class="net-profit-box" :class="{ 'is-loss': profitResult.hasLoss }">
+                <span>净利润</span>
+                <strong>{{ formatMoney(profitResult.netProfit) }}</strong>
+                <span class="text-muted text-small">元</span>
+              </div>
+              <div class="manual-note mt-16"><el-icon><InfoFilled /></el-icon><span>本计算器按你提供的《利润的内容》口径实现：投资净收益在利润总额层级加总，不进营业利润。现行《企业会计准则》把投资收益计入营业利润，两者结果会不同，请按企业实际会计政策取用。</span></div>
+            </el-card>
+          </div>
+
+          <el-card class="surface inner-surface mt-16" shadow="never">
+            <div class="surface-header"><div><h3 class="surface-title">会计恒等式校验</h3><p class="surface-subtitle">资产 = 负债 + 所有者权益，以及扩展式 资产 = 负债 + 所有者权益 +（收入 − 费用）</p></div><el-tag :type="equationResult.status === 'ok' ? 'success' : equationResult.status === 'error' ? 'danger' : 'warning'" effect="light">{{ { ok: '平衡', error: '不平衡', incomplete: '待补数据' }[equationResult.status] }}</el-tag></div>
+            <div class="element-inputs">
+              <label v-for="item in ELEMENT_INPUTS" :key="item.id" class="profit-field">
+                <span class="profit-field-label">{{ item.label }}</span>
+                <el-input v-model="elementInputs[item.id]" placeholder="0.00" inputmode="decimal" />
+                <span class="profit-field-hint">{{ item.hint }}</span>
+              </label>
+            </div>
+            <div class="equation-list">
+              <div v-for="item in equationResult.checks" :key="item.id" class="equation-row" :class="item.status">
+                <el-icon><CircleCheckFilled v-if="item.status === 'ok'" /><WarningFilled v-else-if="item.status === 'error'" /><InfoFilled v-else /></el-icon>
+                <div><code>{{ item.label }}</code><div v-if="item.status !== 'incomplete'" class="equation-detail">左边 {{ formatMoney(item.left) }} · 右边 {{ formatMoney(item.right) }} · 差额 {{ formatMoney(item.difference) }}</div><div v-else class="equation-detail">还缺：{{ item.missing.join('、') }}</div></div>
+              </div>
+            </div>
+            <div class="manual-note mt-12"><el-icon><InfoFilled /></el-icon><span>{{ equationResult.note }}两条式子不能同时成立，除非收入恰好等于费用：扩展式右边多了尚未结转的利润。</span></div>
+          </el-card>
+        </el-tab-pane>
+
+        <el-tab-pane name="entry">
+          <template #label><span class="tab-label"><el-icon><EditPen /></el-icon>分录生成</span></template>
+          <div class="entry-layout">
+            <div>
+              <el-card class="surface inner-surface" shadow="never">
+                <div class="surface-header"><div><h3 class="surface-title">说出业务，自动生成分录</h3><p class="surface-subtitle">覆盖 16 大类 40+ 项常用业务，借贷科目全部取自本页的 89 个常用科目表。</p></div></div>
+                <div class="query-row"><el-input v-model="entryQuery" size="large" clearable placeholder="例如：收到股东投资款 / 计提坏账准备 / 确认销售收入" @keyup.enter="useEntryQuery(entryQuery)"><template #prefix><el-icon><Search /></el-icon></template></el-input><el-button type="primary" size="large" @click="useEntryQuery(entryQuery)">生成分录</el-button></div>
+                <div class="quick-chips"><button v-for="item in entryQuickQueries" :key="item" type="button" class="model-chip" @click="useEntryQuery(item)">{{ item }}</button></div>
+                <div v-if="entryQuery && !entryHits.length" class="result-empty compact-empty mt-16"><div><el-icon><Search /></el-icon><div>没匹配到业务。试试更接近的说法，例如「购买原材料」「计提应付职工薪酬」。</div></div></div>
+                <div v-else-if="entryHits.length" class="entry-hits">
+                  <div class="section-kicker">匹配到 {{ entryHits.length }} 条</div>
+                  <button v-for="hit in entryHits.slice(0, 6)" :key="hit.rule.id" type="button" class="entry-hit" :class="{ 'is-active': hit.rule.id === selectedRuleId }" @click="selectRule(hit.rule)">
+                    <strong>{{ hit.rule.title }}</strong>
+                    <span class="text-muted text-small">{{ hit.rule.group }} · 命中：{{ hit.matched.join('、') }}</span>
+                  </button>
+                </div>
+              </el-card>
+
+              <el-card v-if="selectedRule" class="surface inner-surface mt-16" shadow="never">
+                <div class="surface-header"><div><h3 class="surface-title">填写金额并配平</h3><p class="surface-subtitle">复式记账法：有借必有贷，借贷必相等。</p></div><el-tag v-if="entryBalance?.balanced" type="success" effect="light">已配平</el-tag><el-tag v-else-if="entryPreview?.amount" type="warning" effect="light">待配平</el-tag></div>
+                <div class="entry-controls">
+                  <label class="profit-field"><span class="profit-field-label">业务金额（元）</span><el-input v-model="entryAmount" placeholder="不填则只给借贷方向" inputmode="decimal" /></label>
+                  <label class="profit-field"><span class="profit-field-label">金额记在哪一侧</span><el-select v-model="entrySide"><el-option label="借方" value="debit" /><el-option label="贷方" value="credit" /></el-select></label>
+                </div>
+                <div class="pick-head"><span class="section-kicker">参与本次业务的科目</span><el-button size="small" text @click="togglePickAll">{{ allPicked ? '取消全选' : '全选' }}</el-button></div>
+                <div v-for="(section, index) in pickSections" :key="index" class="pick-section">
+                  <div v-if="section.label" class="pick-section-label"><span>{{ section.label }}</span><em v-if="section.exclusive" class="pick-exclusive">{{ pickSectionCount(section) }}/{{ section.lines.length }}</em></div>
+                  <div class="pick-list">
+                    <label v-for="line in section.lines" :key="lineKey(line)" class="pick-item" :class="[line.side, { 'is-off': !activePicks.includes(lineKey(line)) }]">
+                      <input type="checkbox" :checked="activePicks.includes(lineKey(line))" @change="togglePick(lineKey(line))" />
+                      <span class="pick-side">{{ line.side === 'debit' ? '借' : '贷' }}</span>
+                      <span class="pick-account"><code>{{ line.code }}</code> {{ line.note || '' }}<em v-if="line.sub">{{ line.sub }}</em></span>
+                    </label>
+                  </div>
+                </div>
+                <p v-if="entryPreview?.message" class="text-muted text-small mt-12">{{ entryPreview.message }}</p>
+                <ul v-if="entryPreview?.issues?.length" class="entry-issues"><li v-for="issue in entryPreview.issues" :key="issue">{{ issue }}</li></ul>
+                <div v-if="entryBalance" class="entry-balance" :class="{ 'is-balanced': entryBalance.balanced }">
+                  <span>借方合计 <strong>{{ formatMoney(entryBalance.debit) }}</strong></span>
+                  <span>贷方合计 <strong>{{ formatMoney(entryBalance.credit) }}</strong></span>
+                  <span>差额 <strong>{{ formatMoney(entryBalance.difference) }}</strong></span>
+                </div>
+              </el-card>
+            </div>
+
+            <div>
+              <el-card class="surface inner-surface" shadow="never">
+                <div class="surface-header"><div><h3 class="surface-title">分录预览</h3><p class="surface-subtitle">借方在上、贷方在下，与记账凭证一致。</p></div></div>
+                <div v-if="entryPreview" class="entry-preview">
+                  <div class="entry-preview-title">{{ selectedRule.title }}</div>
+                  <p class="text-muted text-small">{{ selectedRule.summary }}</p>
+                  <div v-for="(line, index) in entryPreview.lines" :key="`${lineKey(line)}-${index}`" class="entry-line" :class="line.side">
+                    <span class="entry-side-tag">{{ line.side === 'debit' ? '借' : '贷' }}</span>
+                    <span class="entry-account"><strong>{{ line.sub || line.account?.name || line.code }}</strong><em v-if="line.sub">{{ line.account?.name }}</em></span>
+                    <span class="entry-code">{{ line.code }}</span>
+                    <span class="entry-amount">{{ line.amount === null ? '—' : formatMoney(line.amount) }}</span>
+                  </div>
+                  <div v-if="!entryPreview.lines.length" class="result-empty compact-empty"><div><el-icon><InfoFilled /></el-icon><div>没有勾选任何科目</div></div></div>
+                  <div v-if="selectedRule.formula" class="entry-formula"><div class="section-kicker">配套公式</div><code>{{ selectedRule.formula }}</code></div>
+                  <div v-if="selectedRule.sourceNote" class="manual-note mt-12"><el-icon><WarningFilled /></el-icon><span>{{ selectedRule.sourceNote }}</span></div>
+                  <div v-if="selectedRule.usage" class="manual-note mt-12"><el-icon><InfoFilled /></el-icon><span>{{ selectedRule.usage }}</span></div>
+                </div>
+                <div v-else class="result-empty tall-empty"><div><el-icon><EditPen /></el-icon><div>先说出业务或从右侧选一类</div></div></div>
+              </el-card>
+
+              <el-card class="surface inner-surface mt-16" shadow="never">
+                <div class="surface-header"><div><h3 class="surface-title">全部业务（16 大类）</h3><p class="surface-subtitle">共 {{ JOURNAL_ENTRY_RULES.length }} 项，点标题即可载入。</p></div></div>
+                <el-collapse>
+                  <el-collapse-item v-for="item in groupedRules" :key="item.group" :title="`${item.group}（${item.rules.length}）`" :name="item.group">
+                    <div class="rule-list">
+                      <button v-for="rule in item.rules" :key="rule.id" type="button" class="rule-chip" :class="{ 'is-active': rule.id === selectedRuleId }" @click="selectRule(rule)">{{ rule.title }}</button>
+                    </div>
+                  </el-collapse-item>
+                </el-collapse>
+              </el-card>
             </div>
           </div>
         </el-tab-pane>
@@ -310,8 +576,10 @@ onBeforeUnmount(() => {
 .success-text { color: var(--teal); }
 .missing-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .check-list { display: flex; flex-direction: column; gap: 2px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
-.check-row { display: flex; gap: 8px; padding: 8px 0; }
+.check-row { display: flex; gap: 8px; padding: 8px 0; flex-wrap: wrap; }
 .check-row > .el-icon { flex: 0 0 auto; margin-top: 1px; }
+.check-row > div { flex: 1 1 200px; min-width: 0; }
+.check-row > .el-tag { flex: 0 0 auto; align-self: flex-start; margin-top: 1px; font-size: 0.8125rem; }
 .check-pass { color: var(--teal); }
 .check-warn { color: var(--amber); }
 .check-fail { color: var(--red); }
@@ -327,6 +595,105 @@ onBeforeUnmount(() => {
 .unverifiable-block { margin-top: 12px; padding: 10px 11px; border: 1px dashed var(--line-strong); border-radius: 9px; background: rgba(245,248,252,.5); }
 .unverifiable-block ul { margin: 7px 0 0; padding-left: 17px; color: var(--ink-500); font-size: 0.75rem; line-height: 1.65; }
 .unverifiable-block li + li { margin-top: 3px; }
+.quality-gate { margin-top: 12px; padding: 11px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: rgba(245,248,252,.6); }
+.quality-gate.is-good { border-color: rgba(24,169,153,.34); background: rgba(24,169,153,.07); }
+.quality-gate.is-warn { border-color: rgba(208,138,29,.36); background: rgba(208,138,29,.08); }
+.quality-gate.is-poor { border-color: rgba(217,83,79,.38); background: rgba(217,83,79,.08); }
+.quality-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.quality-gate ul { margin: 8px 0 0; padding-left: 17px; color: var(--ink-500); font-size: 0.75rem; line-height: 1.65; }
+.quality-gate li + li { margin-top: 3px; }
+.quality-advice { list-style: none; padding-left: 0 !important; }
+.low-confidence-block { margin-top: 15px; padding: 11px 12px; border: 1px solid rgba(208,138,29,.34); border-radius: 10px; background: rgba(208,138,29,.08); }
+.low-confidence-block .section-kicker { display: flex; align-items: center; gap: 5px; color: var(--amber); }
+.low-confidence-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.low-confidence-item { display: flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--line-soft); border-radius: 999px; background: #fff; color: var(--ink-700); font-size: 0.8125rem; }
+.low-confidence-block p { margin: 9px 0 0; }
+
+/* ---------- 利润计算器 ---------- */
+.profit-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.profit-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.profit-input-group { min-width: 0; }
+.profit-field-list { display: flex; flex-direction: column; gap: 10px; margin-top: 7px; }
+.profit-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.profit-field-label { display: flex; align-items: baseline; gap: 4px; color: var(--ink-700); font-size: 0.8125rem; }
+.profit-field-label em { color: var(--ink-500); font-size: 0.75rem; font-style: normal; }
+.profit-field-hint { color: var(--ink-500); font-size: 0.75rem; line-height: 1.45; }
+.formula-chain { margin: 0; padding: 0; list-style: none; counter-reset: formula; }
+.formula-step { padding: 10px 0; border-bottom: 1px dashed var(--line-soft); }
+.formula-step:last-child { border-bottom: 0; }
+.formula-step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.formula-step-head strong { color: var(--ink-900); font-size: 0.9375rem; }
+.formula-value { color: var(--teal); font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.formula-value.is-loss { color: var(--red); }
+.formula-pending { color: var(--amber); font-size: 0.75rem; }
+.formula-expr { display: block; margin-top: 4px; color: var(--ink-500); font-size: 0.8125rem; line-height: 1.5; word-break: break-word; }
+.formula-missing { margin-top: 4px; color: var(--amber); font-size: 0.75rem; }
+.formula-note { display: flex; gap: 5px; margin-top: 6px; color: var(--ink-500); font-size: 0.75rem; line-height: 1.5; }
+.formula-note .el-icon { flex: 0 0 auto; margin-top: 1px; }
+.net-profit-box { display: flex; align-items: baseline; gap: 8px; margin-top: 14px; padding: 13px 15px; border: 1px solid rgba(24,169,153,.34); border-radius: 11px; background: rgba(24,169,153,.08); }
+.net-profit-box.is-loss { border-color: rgba(217,83,79,.36); background: rgba(217,83,79,.08); }
+.net-profit-box > span:first-child { color: var(--ink-700); font-size: 0.875rem; }
+.net-profit-box strong { margin-left: auto; color: var(--teal); font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.net-profit-box.is-loss strong { color: var(--red); }
+.element-inputs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.equation-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.equation-row { display: flex; gap: 8px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 9px; background: rgba(245,248,252,.5); }
+.equation-row .el-icon { flex: 0 0 auto; margin-top: 2px; }
+.equation-row.ok .el-icon { color: var(--teal); }
+.equation-row.error .el-icon { color: var(--red); }
+.equation-row.error { border-color: rgba(217,83,79,.34); background: rgba(217,83,79,.06); }
+.equation-row.incomplete .el-icon { color: var(--amber); }
+.equation-row code { color: var(--ink-900); font-size: 0.875rem; }
+.equation-detail { margin-top: 3px; color: var(--ink-500); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+
+/* ---------- 分录生成器 ---------- */
+.entry-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.entry-hits { margin-top: 16px; }
+.entry-hit { display: block; width: 100%; padding: 9px 11px; margin-top: 7px; border: 1px solid var(--line-soft); border-radius: 9px; background: #fff; text-align: left; cursor: pointer; }
+.entry-hit strong { display: block; color: var(--ink-900); font-size: 0.875rem; }
+.entry-hit span { display: block; margin-top: 2px; }
+.entry-hit:hover { border-color: var(--teal); }
+.entry-hit.is-active { border-color: var(--teal); background: rgba(24,169,153,.08); }
+.entry-controls { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; }
+.pick-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; }
+.pick-section + .pick-section { margin-top: 12px; }
+.pick-section-label { display: flex; align-items: center; gap: 7px; color: var(--ink-600); font-size: 0.8125rem; }
+.pick-exclusive { padding: 1px 7px; border-radius: 999px; background: rgba(24,169,153,.12); color: var(--teal); font-size: 0.75rem; font-style: normal; font-variant-numeric: tabular-nums; }
+.pick-list { display: flex; flex-direction: column; gap: 6px; margin-top: 7px; }
+.pick-item { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 8px; cursor: pointer; }
+.pick-item.is-off { opacity: .45; }
+.pick-item input { margin-top: 3px; flex: 0 0 auto; }
+.pick-side { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; font-size: 0.8125rem; font-weight: 600; line-height: 22px; text-align: center; }
+.pick-item.debit .pick-side { color: var(--teal); background: rgba(24,169,153,.12); }
+.pick-item.credit .pick-side { color: var(--blue); background: rgba(64,120,255,.12); }
+.pick-account { color: var(--ink-700); font-size: 0.8125rem; line-height: 1.5; }
+.pick-account code { color: var(--ink-500); font-size: 0.75rem; }
+.pick-account em { display: block; color: var(--ink-500); font-size: 0.75rem; font-style: normal; }
+.entry-issues { margin: 10px 0 0; padding-left: 18px; color: var(--amber); font-size: 0.8125rem; line-height: 1.6; }
+.entry-balance { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; padding: 11px 13px; border: 1px solid var(--line-soft); border-radius: 9px; background: rgba(245,248,252,.6); color: var(--ink-500); font-size: 0.875rem; }
+.entry-balance strong { color: var(--ink-900); font-variant-numeric: tabular-nums; }
+.entry-balance.is-balanced { border-color: rgba(24,169,153,.34); background: rgba(24,169,153,.07); }
+.entry-balance.is-balanced strong { color: var(--teal); }
+.entry-preview-title { color: var(--ink-900); font-size: 1rem; font-weight: 600; }
+.entry-line { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px dashed var(--line-soft); }
+.entry-line:last-of-type { border-bottom: 0; }
+.entry-side-tag { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 6px; font-size: 0.8125rem; font-weight: 600; line-height: 24px; text-align: center; }
+.entry-line.debit .entry-side-tag { color: var(--teal); background: rgba(24,169,153,.12); }
+.entry-line.credit .entry-side-tag { color: var(--blue); background: rgba(64,120,255,.12); }
+.entry-account { flex: 1 1 auto; min-width: 0; }
+.entry-account strong { display: block; color: var(--ink-900); font-size: 0.875rem; }
+.entry-account em { display: block; color: var(--ink-500); font-size: 0.75rem; font-style: normal; }
+.entry-code { flex: 0 0 auto; color: var(--ink-500); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.entry-amount { flex: 0 0 auto; min-width: 88px; text-align: right; color: var(--ink-900); font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+.entry-formula { margin-top: 14px; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 9px; }
+.entry-formula code { display: block; margin-top: 5px; color: var(--ink-700); font-size: 0.8125rem; line-height: 1.5; word-break: break-word; }
+.rule-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.rule-chip { padding: 5px 10px; border: 1px solid var(--line-soft); border-radius: 999px; background: #fff; color: var(--ink-700); font-size: 0.8125rem; cursor: pointer; }
+.rule-chip:hover { border-color: var(--teal); color: var(--teal); }
+.rule-chip.is-active { border-color: var(--teal); background: rgba(24,169,153,.1); color: var(--teal); font-weight: 600; }
+@media (max-width: 900px) {
+  .profit-layout, .entry-layout, .profit-inputs, .entry-controls, .element-inputs { grid-template-columns: minmax(0, 1fr); }
+}
 .tall-empty { min-height: 360px; }
 .basics-side { display: flex; flex-direction: column; gap: 12px; }
 .basics-card-title { display: flex; align-items: flex-start; gap: 7px; color: var(--ink-900); font-size: 0.875rem; line-height: 1.5; }

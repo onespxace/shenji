@@ -26,3 +26,10 @@ Thumbs.db
 
 # 备份目录里的压缩包与解压目录内容重复，只保留解压目录
 backups/**/*.zip
+
+# OCR 准确率基准的工作目录（约 34 MB：测试图 + 备选模型）。
+# 用 `node web/scripts/bench-ocr.mjs --make-images` 重新生成，不入库。
+web/.bench-ocr/
+
+# 浏览器端真机验证用的临时图片
+web/public/_t/

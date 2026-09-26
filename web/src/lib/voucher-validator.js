@@ -378,26 +378,73 @@ export function validateVoucherText(input, options = {}) {
   const balanced = difference !== null && Math.abs(difference) < 0.01 && (amounts.debit !== 0 || amounts.credit !== 0)
   const checks = []
 
-  checks.push(makeCheck('date', '凭证日期', 10, date ? 'pass' : 'fail', date ? `识别到 ${date.value}` : '未识别到有效日期'))
-  checks.push(makeCheck('voucherNo', '凭证编号', 10, voucherNumber ? 'pass' : 'fail', voucherNumber ? `识别到 ${voucherNumber}` : '缺少或未识别凭证编号'))
-  checks.push(makeCheck('summary', '经济业务摘要', 10, summary.value ? (summary.confidence === 'high' ? 'pass' : 'warn') : 'fail', summary.value ? `识别到“${summary.value}”${summary.confidence === 'low' ? '（低置信度，请核对）' : ''}` : '缺少摘要'))
-  checks.push(makeCheck('accounts', '会计科目', 15, accounts.length >= 2 ? 'pass' : accounts.length === 1 ? 'warn' : 'fail', accounts.length ? `识别到 ${accounts.length} 个科目：${accounts.map((item) => `${item.code} ${item.name}`).join('、')}` : '未识别到可用科目'))
+  // 逐字置信度：OCR 识别到的字段若置信度偏低，只能提示核对，不能判为通过。
+  // 依据实测：错字（如"王五"被识别成"EA"）的词级置信度远低于整页均值。
+  //
+  // 取匹配词的"最低"置信度而非平均值：签名字段由多个词组成，若用平均，
+  // 90/90/56 平均后是 79，会把唯一的错字抹掉，用户反而看不出该核对哪里。
+  const words = Array.isArray(options.words) ? options.words : null
+  const warnBelow = Number.isFinite(options.fieldWarnThreshold) ? options.fieldWarnThreshold : 78
+  const fieldConfidence = (needle) => {
+    if (!words || !needle) return null
+    const target = String(needle).replace(/[\s　]/g, '')
+    if (!target) return null
+    let worst = Infinity
+    let count = 0
+    for (const word of words) {
+      const wordText = String(word.text || '').replace(/[\s　]/g, '')
+      if (!wordText) continue
+      if (wordText.includes(target) || target.includes(wordText)) {
+        worst = Math.min(worst, Number(word.confidence || 0))
+        count += 1
+      }
+    }
+    return count ? Math.round(worst) : null
+  }
+  const lowConfidenceFields = []
+  const confidenceLog = []
+  const trackConfidence = (id, label, needle) => {
+    const confidence = fieldConfidence(needle)
+    confidenceLog.push({ id, label, confidence })
+    if (confidence !== null && confidence < warnBelow) lowConfidenceFields.push({ id, label, confidence })
+    return confidence
+  }
+  const fieldConfidences = () => confidenceLog.filter((item) => item.confidence !== null)
+
+  // 逐字段记录置信度：命中的字段若置信度不足，状态由 pass 降级为 warn
+  const withConfidence = (check, needle) => {
+    const confidence = trackConfidence(check.id, check.label, needle)
+    if (confidence === null || confidence >= warnBelow) return check
+    return {
+      ...check,
+      status: check.status === 'pass' ? 'warn' : check.status,
+      detail: `${check.detail}（识别置信度 ${confidence}%，请核对）`
+    }
+  }
+  const push = (check, needle) => checks.push(needle ? withConfidence(check, needle) : check)
+
+  // 日期用 raw 而非规范化后的 value：OCR 原样是"2024年5月3日"，
+  // 规范化成"2024-05-03"就再也匹配不到词级置信度了。
+  push(makeCheck('date', '凭证日期', 10, date ? 'pass' : 'fail', date ? `识别到 ${date.value}` : '未识别到有效日期'), date?.raw)
+  push(makeCheck('voucherNo', '凭证编号', 10, voucherNumber ? 'pass' : 'fail', voucherNumber ? `识别到 ${voucherNumber}` : '缺少或未识别凭证编号'), voucherNumber)
+  push(makeCheck('summary', '经济业务摘要', 10, summary.value ? (summary.confidence === 'high' ? 'pass' : 'warn') : 'fail', summary.value ? `识别到“${summary.value}”${summary.confidence === 'low' ? '（低置信度，请核对）' : ''}` : '缺少摘要'), summary.value)
+  push(makeCheck('accounts', '会计科目', 15, accounts.length >= 2 ? 'pass' : accounts.length === 1 ? 'warn' : 'fail', accounts.length ? `识别到 ${accounts.length} 个科目：${accounts.map((item) => `${item.code} ${item.name}`).join('、')}` : '未识别到可用科目'), accounts.map((item) => item.name).join(' '))
 
   if (amounts.debit === null || amounts.debit === 0) checks.push(makeCheck('debit', '借方金额', 10, 'fail', '未识别到有效借方金额'))
-  else checks.push(makeCheck('debit', '借方金额', 10, amounts.inferred ? 'warn' : 'pass', `借方合计 ${money(amounts.debit)}${amounts.inferred ? '（部分方向由科目属性推断）' : ''}`))
+  else push(makeCheck('debit', '借方金额', 10, amounts.inferred ? 'warn' : 'pass', `借方合计 ${money(amounts.debit)}${amounts.inferred ? '（部分方向由科目属性推断）' : ''}`), String(amounts.debit))
   if (amounts.credit === null || amounts.credit === 0) checks.push(makeCheck('credit', '贷方金额', 10, 'fail', '未识别到有效贷方金额'))
-  else checks.push(makeCheck('credit', '贷方金额', 10, amounts.inferred ? 'warn' : 'pass', `贷方合计 ${money(amounts.credit)}${amounts.inferred ? '（部分方向由科目属性推断）' : ''}`))
+  else push(makeCheck('credit', '贷方金额', 10, amounts.inferred ? 'warn' : 'pass', `贷方合计 ${money(amounts.credit)}${amounts.inferred ? '（部分方向由科目属性推断）' : ''}`), String(amounts.credit))
 
   if (difference === null) checks.push(makeCheck('balance', '借贷平衡', 15, 'warn', '金额不足，无法完成借贷平衡校验'))
-  else checks.push(makeCheck('balance', '借贷平衡', 15, balanced ? 'pass' : 'fail', balanced ? `借贷相等，均为 ${money(amounts.debit)}` : `借方 ${money(amounts.debit)}，贷方 ${money(amounts.credit)}，差额 ${money(difference)}`))
+  else push(makeCheck('balance', '借贷平衡', 15, balanced ? 'pass' : 'fail', balanced ? `借贷相等，均为 ${money(amounts.debit)}` : `借方 ${money(amounts.debit)}，贷方 ${money(amounts.credit)}，差额 ${money(difference)}`), String(amounts.debit))
   if (capsAmount) {
     const capsMatches = amounts.debit !== null && Math.abs(capsAmount.value - amounts.debit) < 0.01
-    checks.push(makeCheck('capsAmount', '大写金额', 5, capsMatches ? 'pass' : amounts.debit === null ? 'warn' : 'fail', capsMatches ? `大写金额与阿拉伯数字一致：${capsAmount.raw}` : amounts.debit === null ? `识别到大写金额 ${capsAmount.raw}，但阿拉伯数字不足，需人工核对` : `大写金额 ${capsAmount.raw}（${money(capsAmount.value)}）与阿拉伯数字 ${money(amounts.debit)} 不一致`))
+    push(makeCheck('capsAmount', '大写金额', 5, capsMatches ? 'pass' : amounts.debit === null ? 'warn' : 'fail', capsMatches ? `大写金额与阿拉伯数字一致：${capsAmount.raw}` : amounts.debit === null ? `识别到大写金额 ${capsAmount.raw}，但阿拉伯数字不足，需人工核对` : `大写金额 ${capsAmount.raw}（${money(capsAmount.value)}）与阿拉伯数字 ${money(amounts.debit)} 不一致`), capsAmount.raw)
   }
 
-  checks.push(makeCheck('attachment', '附件张数', 5, attachmentCount !== null && attachmentCount >= 0 ? 'pass' : 'fail', attachmentCount !== null ? `识别到 ${attachmentCount} 张附件` : '缺少或未识别附件张数'))
+  push(makeCheck('attachment', '附件张数', 5, attachmentCount !== null && attachmentCount >= 0 ? 'pass' : 'fail', attachmentCount !== null ? `识别到 ${attachmentCount} 张附件` : '缺少或未识别附件张数'), attachmentCount === null ? null : String(attachmentCount))
   const completeSignatures = signatures.filter((item) => item.complete).length
-  checks.push(makeCheck('signatures', '责任签名', 10, completeSignatures === signatures.length ? 'pass' : completeSignatures > 0 ? 'warn' : 'fail', `识别到 ${completeSignatures}/${signatures.length} 个完整签名：${signatures.map((item) => `${item.label}${item.complete ? '✓' : '×'}`).join('、')}`))
+  push(makeCheck('signatures', '责任签名', 10, completeSignatures === signatures.length ? 'pass' : completeSignatures > 0 ? 'warn' : 'fail', `识别到 ${completeSignatures}/${signatures.length} 个完整签名：${signatures.map((item) => `${item.label}${item.complete ? '✓' : '×'}`).join('、')}`), signatures.map((item) => item.name).join(' '))
 
   const totalWeight = checks.reduce((sum, check) => sum + check.weight, 0)
   const earnedWeight = checks.reduce((sum, check) => sum + check.weight * (check.status === 'pass' ? 1 : check.status === 'warn' ? 0.5 : 0), 0)
@@ -406,11 +453,17 @@ export function validateVoucherText(input, options = {}) {
   const warnings = checks.filter((check) => check.status === 'warn')
   let status = failures.length === 0 && score >= 90 ? 'complete' : score >= 60 ? 'review' : 'incomplete'
   if (options.ocrConfidence !== undefined && options.ocrConfidence !== null && options.ocrConfidence < 70 && status === 'complete') status = 'review'
+  // 关键字段置信度不足时，不允许给出"形式要素基本完整"的结论
+  const criticalLow = lowConfidenceFields.some((item) => ['date', 'voucherNo', 'debit', 'credit', 'balance', 'signatures', 'accounts'].includes(item.id))
+  if (criticalLow && status === 'complete') status = 'review'
   const notes = [
     '本检查只判断凭证形式要素、科目可识别性和借贷平衡，不能证明经济业务真实、计价正确或审批合规。',
     'OCR 无法可靠判断签章真伪、涂改痕迹、重复报销和舞弊风险，相关项目必须人工复核。'
   ]
   if (options.ocrConfidence !== undefined && options.ocrConfidence !== null && options.ocrConfidence < 70) notes.unshift(`OCR 置信度较低（${Math.round(options.ocrConfidence)}%），建议人工校对识别文本。`)
+  if (lowConfidenceFields.length) {
+    notes.unshift(`以下字段识别置信度偏低，请重点核对：${lowConfidenceFields.map((item) => `${item.label}(${item.confidence}%)`).join('、')}。`)
+  }
   if (accounts.length > 1 && new Set(accounts.map((item) => item.classId)).size === 1) notes.push('识别到的分录科目集中在同一大类，可能缺少另一方向分录，请结合业务复核。')
 
   return {
@@ -421,6 +474,9 @@ export function validateVoucherText(input, options = {}) {
     warnings: warnings.map((item) => item.label),
     unverifiable: UNVERIFIABLE_VOUCHER_CHECKS,
     notes,
+    // 逐字段置信度（仅在传入 words 时非空）：UI 据此标注"重点核对"
+    lowConfidenceFields,
+    fieldConfidences: fieldConfidences(),
     extracted: { date, voucherNumber, summary, accounts, attachmentCount, signatures, amounts, capsAmount }
   }
 }

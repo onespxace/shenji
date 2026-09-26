@@ -64,10 +64,14 @@ export function slideBodyHtml(slide, emblemUrl = '') {
           <ul>${(slide.right.items || []).map((i) => `<li>${escapeHtml(i)}</li>`).join('')}</ul></div>
       </div>`
 
-    case 'metrics':
-      return `<div class="metrics">${(slide.metrics || []).map((m) => `
+    case 'metrics': {
+      // 列数由数据条数决定：舞台是固定 1280×720，列数写死会在 6 条时换行溢出
+      const metrics = slide.metrics || []
+      const columns = Math.max(1, Math.min(6, metrics.length))
+      return `<div class="metrics" style="grid-template-columns:repeat(${columns},minmax(0,1fr))">${metrics.map((m) => `
         <div class="metric"><div class="metric-value">${escapeHtml(m.value)}</div><div class="metric-label">${escapeHtml(m.label)}</div></div>`).join('')}</div>
         ${slide.note ? `<p class="metrics-note">${escapeHtml(slide.note)}</p>` : ''}`
+    }
 
     case 'closing':
       return `<p class="slide-eyebrow">${escapeHtml(slide.eyebrow)}</p>
