@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>PaddleOCR 探针（开发用，不进构建产物）</title>
+<style>
+  body { font: 15px/1.7 system-ui, sans-serif; margin: 0; padding: 20px; background: #f6f8fb; color: #1f2937; }
+  h1 { font-size: 1.25rem; margin: 0 0 6px; }
+  p.sub { margin: 0 0 16px; color: #6b7280; }
+  button { font: inherit; padding: 8px 14px; margin-right: 8px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #log { margin-top: 14px; padding: 12px; border-radius: 8px; background: #0f172a; color: #e2e8f0; white-space: pre-wrap; font: 13px/1.6 ui-monospace, monospace; max-height: 60vh; overflow: auto; }
+  .ok { color: #34d399; } .bad { color: #f87171; }
+</style>
+</head>
+<body>
+<h1>PaddleOCR.js 探针</h1>
+<p class="sub">验证 PP-OCRv5 mobile 能否在浏览器本地运行，并记录耗时。图片不上传。</p>
+<button id="init">初始化模型</button>
+<button id="run" disabled>识别 D-photo（翻拍）</button>
+<button id="runA" disabled>识别 A-scan（扫描件）</button>
+<button id="runD" disabled>识别 D-photo（翻拍）</button>
+<div id="log">等待操作…</div>
+<script type="module" src="/src/paddle-probe.js"></script>
+</body>
+</html>

@@ -33,3 +33,5 @@ web/.bench-ocr/
 
 # 浏览器端真机验证用的临时图片
 web/public/_t/
+web/public/A-scan.png
+web/public/D-photo.png

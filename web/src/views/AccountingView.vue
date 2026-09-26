@@ -23,6 +23,9 @@ import { ACCOUNT_CLASSES, ACCOUNT_ENTRIES, ACCOUNTING_BASICS, answerAccountingQu
 import { ELEMENT_INPUTS, PROFIT_EXAMPLE, PROFIT_INPUTS, checkAccountingEquations, computeProfitChain, formatMoney } from '../lib/profit-calculator'
 import { JOURNAL_ENTRY_RULES, JOURNAL_GROUPS, buildEntry, checkBalanced, lineKey, matchJournalRules } from '../lib/journal-entries'
 import { recognizeVoucherImage, terminateOcr } from '../lib/ocr'
+import { processCredential, disposeAllEngines, ENGINE_IDS } from '../ocr/pipeline/credential-pipeline'
+import { RELIABILITY_BANDS } from '../ocr/confidence/reliability'
+import { FIELD_LABELS as OCR_FIELD_LABELS } from '../ocr/validators/field-validators'
 import { COMPLETE_VOUCHER_SAMPLE, INCOMPLETE_VOUCHER_SAMPLE, UPPERCASE_VOUCHER_SAMPLE, validateVoucherText } from '../lib/voucher-validator'
 
 const activeTab = ref('accounts')
@@ -68,6 +71,47 @@ const qualityTagText = computed(() => {
   if (!q) return ''
   return { good: '画质良好', warn: '画质一般', poor: '画质不足，建议重拍' }[q.level] + `（${q.score} 分）`
 })
+
+// ---------------- 凭证结构化识别（新管线） ----------------
+const structured = ref(null)
+const structuredRunning = ref(false)
+const structuredStatus = ref('')
+const engineChoice = ref('paddle')
+const showCells = ref(false)
+const structuredBusy = ref(false)
+
+const bandType = (band) => RELIABILITY_BANDS.find((b) => b.id === band)?.type || 'info'
+const bandLabelOf = (band) => RELIABILITY_BANDS.find((b) => b.id === band)?.label || '需要人工复核'
+const reliabilityPct = (value) => `${Math.round((value || 0) * 100)}%`
+
+async function runStructuredOcr() {
+  if (!voucherFile.value || structuredBusy.value) return
+  structuredBusy.value = true
+  structuredRunning.value = true
+  structuredStatus.value = '准备识别'
+  structured.value = null
+  try {
+    const result = await processCredential(voucherFile.value, {
+      engine: engineChoice.value,
+      reRecognize: true,
+      reRecognizeLimit: 3,
+      onProgress: ({ progress, status }) => {
+        structuredStatus.value = status
+        ocrProgress.value = Math.round(progress * 100)
+      }
+    })
+    structured.value = result
+    ocrProgress.value = 100
+    structuredStatus.value = `识别完成 · ${result.processingTime} ms · 定向重识别 ${result.reRecognized} 个字段`
+    // 旧路径的结果保留在 voucherText 里供人工对照，不覆盖
+    if (result.fields.length) ocrConfidence.value = Math.round((result.summary.overall || 0) * 100)
+  } catch (error) {
+    structuredStatus.value = `识别失败：${error.message || error}`
+  } finally {
+    structuredRunning.value = false
+    structuredBusy.value = false
+  }
+}
 
 // ---------------- 利润计算器 ----------------
 const profitInputs = ref({ ...PROFIT_EXAMPLE })
@@ -199,6 +243,8 @@ function handleVoucherFile(file) {
   ocrWords.value = null
   imageQuality.value = null
   ocrStatus.value = ''
+  structured.value = null
+  structuredStatus.value = ''
 }
 function handleFileChange(event) {
   handleVoucherFile(event.target.files?.[0])
@@ -263,6 +309,8 @@ function resetVoucher() {
   ocrConfidence.value = null
   ocrWords.value = null
   imageQuality.value = null
+  structured.value = null
+  structuredStatus.value = ''
 }
 onBeforeUnmount(() => {
   if (voucherPreview.value) URL.revokeObjectURL(voucherPreview.value)
@@ -346,6 +394,70 @@ onBeforeUnmount(() => {
                   <div class="quality-head"><el-tag :type="qualityTagType" effect="light" size="small">{{ qualityTagText }}</el-tag><span class="text-muted text-small">清晰度 {{ imageQuality.metrics.sharpness.toFixed(0) }} · 对比度 {{ imageQuality.metrics.std.toFixed(0) }} · 亮度 {{ imageQuality.metrics.mean.toFixed(0) }}<template v-if="imageQuality.metrics.skewDeg > 0.4"> · 倾斜 {{ imageQuality.metrics.skewDeg.toFixed(1) }}°</template></span></div>
                   <ul v-if="imageQuality.reasons.length"><li v-for="reason in imageQuality.reasons" :key="reason">{{ reason }}</li></ul>
                   <ul v-else class="quality-advice"><li v-for="tip in imageQuality.advice" :key="tip">{{ tip }}</li></ul>
+                </div>
+
+                <div class="structured-entry mt-16">
+                  <div class="structured-head">
+                    <strong>结构化识别（逐字段）</strong>
+                    <el-radio-group v-model="engineChoice" size="small">
+                      <el-radio-button value="paddle">PaddleOCR PP-OCRv5</el-radio-button>
+                      <el-radio-button value="tesseract">Tesseract</el-radio-button>
+                    </el-radio-group>
+                    <el-button type="primary" size="small" :disabled="!voucherFile || structuredBusy" :loading="structuredRunning" @click="runStructuredOcr">逐字段识别</el-button>
+                  </div>
+                  <p class="text-muted text-small">先定位字段位置再识别，每个字段单独给可靠度。首次使用 Paddle 需下载约 20.6MB 模型，图片始终留在本机。</p>
+                  <div v-if="structuredBusy" class="text-muted text-small">正在识别：{{ structuredStatus }}（{{ ocrProgress }}%）</div>
+                  <div v-else-if="structuredStatus && !structured" class="text-muted text-small">{{ structuredStatus }}</div>
+                </div>
+
+                <div v-if="structured" class="field-review">
+                  <div class="review-summary" :class="structured.summary.band">
+                    <div class="review-score"><strong>{{ reliabilityPct(structured.summary.overall) }}</strong><span>识别可靠度</span></div>
+                    <div class="review-copy">
+                      <div class="review-verdict">{{ bandLabelOf(structured.summary.band) }}</div>
+                      <ul v-if="structured.summary.needsManual.length" class="review-list danger"><li>需人工复核：{{ structured.summary.needsManual.join('、') }}</li></ul>
+                      <ul v-if="structured.summary.needsReview.length" class="review-list warn"><li>建议核对：{{ structured.summary.needsReview.join('、') }}</li></ul>
+                      <p class="text-muted text-small">{{ structured.summary.disclaimer }}</p>
+                    </div>
+                  </div>
+
+                  <div class="review-table">
+                    <div v-for="field in structured.fields" :key="field.field" class="review-row" :class="field.band">
+                      <span class="review-label">{{ field.label }}</span>
+                      <span class="review-value">{{ field.value || '未可靠识别' }}</span>
+                      <span class="review-meta">
+                        <el-tag :type="bandType(field.band)" size="small" effect="light">{{ bandLabelOf(field.band) }}</el-tag>
+                        <em>{{ reliabilityPct(field.reliability) }}</em>
+                      </span>
+                      <span v-if="field.reasons.length" class="review-reason">{{ field.reasons.join('；') }}</span>
+                    </div>
+                    <div class="review-row signature-row">
+                      <span class="review-label">责任签名</span>
+                      <span class="review-value">{{ structured.signature.ocrText || '未识别到文字' }}</span>
+                      <span class="review-meta"><el-tag :type="structured.signature.type" size="small" effect="light">{{ structured.signature.label }}</el-tag></span>
+                      <span class="review-reason">{{ structured.signature.note }}</span>
+                    </div>
+                  </div>
+
+                  <div class="review-extra">
+                    <span>借贷：{{ structured.balance.state === 'balanced' ? '平衡' : structured.balance.state === 'unbalanced' ? `差额 ${structured.balance.difference}` : '无法校验' }}</span>
+                    <span>耗时 {{ structured.processingTime }} ms</span>
+                    <span>重识别 {{ structured.reRecognized }} 个字段</span>
+                    <span>模型 {{ structured.engine }}</span>
+                  </div>
+                  <div v-if="structured.warnings.length" class="entry-issues"><ul><li v-for="w in structured.warnings" :key="w">{{ w }}</li></ul></div>
+                  <div class="signature-disclaimer"><el-icon><WarningFilled /></el-icon><span>{{ structured.signatureNote }}</span></div>
+                  <div class="cell-toggle">
+                    <el-button size="small" text @click="showCells = !showCells">{{ showCells ? '收起' : '展开' }} {{ structured.cells.length }} 个单元格坐标</el-button>
+                    <div v-if="showCells" class="cell-list">
+                      <div v-for="(cell, i) in structured.cells" :key="i" class="cell-item">
+                        <code>{{ cell.column || '—' }}</code>
+                        <span>{{ cell.text }}</span>
+                        <em>{{ reliabilityPct(cell.confidence) }}</em>
+                        <span class="cell-coord">({{ cell.bbox.x }},{{ cell.bbox.y }} {{ cell.bbox.width }}×{{ cell.bbox.height }})</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </el-card>
               <el-card class="surface inner-surface mt-16" shadow="never">
@@ -603,6 +715,49 @@ onBeforeUnmount(() => {
 .quality-gate ul { margin: 8px 0 0; padding-left: 17px; color: var(--ink-500); font-size: 0.75rem; line-height: 1.65; }
 .quality-gate li + li { margin-top: 3px; }
 .quality-advice { list-style: none; padding-left: 0 !important; }
+.structured-entry { padding: 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: rgba(245,248,252,.5); }
+.structured-head { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.structured-head strong { color: var(--ink-900); font-size: 0.9375rem; }
+.structured-head .el-button { margin-left: auto; }
+.field-review { margin-top: 12px; }
+.review-summary { display: flex; gap: 14px; padding: 13px; border: 1px solid var(--line-soft); border-radius: 11px; }
+.review-summary.reliable { border-color: rgba(24,169,153,.34); background: rgba(24,169,153,.07); }
+.review-summary.review { border-color: rgba(208,138,29,.36); background: rgba(208,138,29,.08); }
+.review-summary.manual { border-color: rgba(217,83,79,.38); background: rgba(217,83,79,.08); }
+.review-score { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 96px; }
+.review-score strong { color: var(--ink-900); font-size: 1.75rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.review-score span { color: var(--ink-500); font-size: 0.75rem; }
+.review-copy { flex: 1 1 auto; min-width: 0; }
+.review-verdict { color: var(--ink-900); font-size: 0.9375rem; font-weight: 600; }
+.review-list { margin: 6px 0 0; padding-left: 17px; font-size: 0.8125rem; line-height: 1.6; }
+.review-list.danger { color: var(--red); }
+.review-list.warn { color: var(--amber); }
+.review-copy p { margin: 6px 0 0; }
+.review-table { margin-top: 12px; border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; }
+.review-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 8px 10px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--line-soft); background: #fff; }
+.review-row:last-child { border-bottom: 0; }
+.review-row.manual { background: rgba(217,83,79,.05); }
+.review-row.review { background: rgba(208,138,29,.05); }
+.review-row.signature-row { grid-template-columns: 92px minmax(0, 1fr) auto; background: rgba(208,138,29,.07); }
+.review-label { color: var(--ink-600); font-size: 0.8125rem; }
+.review-value { color: var(--ink-900); font-size: 0.9375rem; font-weight: 500; word-break: break-word; }
+.review-meta { display: flex; align-items: center; gap: 6px; }
+.review-meta em { color: var(--ink-500); font-size: 0.75rem; font-style: normal; font-variant-numeric: tabular-nums; }
+.review-reason { grid-column: 2 / -1; color: var(--ink-500); font-size: 0.75rem; line-height: 1.55; }
+.review-extra { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; color: var(--ink-500); font-size: 0.75rem; }
+.signature-disclaimer { display: flex; gap: 7px; margin-top: 10px; padding: 9px 11px; border-radius: 8px; background: rgba(208,138,29,.08); color: var(--ink-600); font-size: 0.75rem; line-height: 1.6; }
+.signature-disclaimer .el-icon { flex: 0 0 auto; margin-top: 1px; color: var(--amber); }
+.cell-toggle { margin-top: 8px; }
+.cell-list { max-height: 260px; overflow: auto; margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: #0f172a; }
+.cell-item { display: flex; flex-wrap: wrap; gap: 8px; padding: 3px 0; color: #cbd5e1; font: 12px/1.6 ui-monospace, monospace; }
+.cell-item code { color: #7dd3fc; }
+.cell-item em { color: #fbbf24; font-style: normal; }
+.cell-coord { color: #64748b; }
+@media (max-width: 720px) {
+  .review-row, .review-row.signature-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .review-label { grid-column: 1 / -1; }
+  .review-reason { grid-column: 1 / -1; }
+}
 .low-confidence-block { margin-top: 15px; padding: 11px 12px; border: 1px solid rgba(208,138,29,.34); border-radius: 10px; background: rgba(208,138,29,.08); }
 .low-confidence-block .section-kicker { display: flex; align-items: center; gap: 5px; color: var(--amber); }
 .low-confidence-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }

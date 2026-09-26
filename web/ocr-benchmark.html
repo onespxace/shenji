@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>凭证识别基准测试（开发用，不进构建产物）</title>
+<style>
+  body { font: 15px/1.7 system-ui, sans-serif; margin: 0; padding: 20px; background: #f6f8fb; color: #1f2937; }
+  h1 { font-size: 1.25rem; margin: 0 0 4px; }
+  p.sub { margin: 0 0 14px; color: #6b7280; }
+  .notice { padding: 9px 12px; border-left: 3px solid #d97706; background: #fffbeb; border-radius: 0 6px 6px 0; margin-bottom: 14px; font-size: 0.875rem; }
+  button { font: inherit; padding: 9px 16px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #out { margin-top: 14px; }
+  #out div { font: 13px/1.6 ui-monospace, monospace; }
+  .h { font-weight: 700; margin-top: 12px; color: #0f172a; }
+  .line { color: #334155; }
+  .good { color: #047857; } .bad { color: #b91c1c; } .warn { color: #b45309; }
+  table { border-collapse: collapse; margin: 8px 0 4px; font-size: 13px; background: #fff; }
+  th, td { border: 1px solid #e2e8f0; padding: 5px 11px; text-align: left; }
+  thead th, tfoot th { background: #f1f5f9; }
+  tr.good td { background: #ecfdf5; } tr.bad td { background: #fef2f2; }
+</style>
+</head>
+<body>
+<h1>凭证识别基准测试</h1>
+<p class="sub">同一批图，同一套评分口径，对比 Tesseract 基线与新管线。图片不上传。</p>
+<div class="notice">
+  当前测试集是<strong>合成渲染</strong>图，衡量的是印刷体在退化拍摄条件下的表现。
+  真实凭证还叠加手写、印章遮挡、复写纸洇色，准确率只会更低。签名为辅助识别，不构成身份证明。
+</div>
+<button id="run">运行基准测试</button>
+<div id="out"></div>
+<script type="module" src="/src/ocr-benchmark.js"></script>
+</body>
+</html>
