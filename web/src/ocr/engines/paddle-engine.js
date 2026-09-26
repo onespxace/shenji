@@ -13,6 +13,17 @@ const DET_MODEL = 'PP-OCRv5_mobile_det'
 const REC_MODEL = 'PP-OCRv5_mobile_rec'
 const ORT_WASM_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/'
 
+/**
+ * 模型 URL 版本号。
+ *
+ * 除了让浏览器放弃旧缓存，更是为了甩掉已经被污染的缓存：
+ * 早期版本的可用性探测用 `Range: bytes=0-0` 请求了与 SDK 相同的 URL，
+ * GitHub Pages 的 `max-age=600` 把那个 1 字节的部分响应缓存了下来。
+ * 已经中招的用户浏览器里，干净 URL 上仍挂着 1 字节的缓存，
+ * 不换 URL 就永远修不好。改动探测逻辑时必须同步 bump 这个版本号。
+ */
+const MODEL_URL_VERSION = 'v2'
+
 let sdkPromise = null
 let instance = null
 let initSummary = null
@@ -26,7 +37,7 @@ async function loadSdk() {
 }
 
 function assetUrl(name) {
-  return new URL(`ocr/paddle/${name}.tar`, document.baseURI).href
+  return new URL(`ocr/paddle/${name}.tar?v=${MODEL_URL_VERSION}`, document.baseURI).href
 }
 
 export function paddleAssetManifest() {
@@ -39,19 +50,29 @@ export function paddleAssetManifest() {
 /**
  * 模型是否已随站点部署。
  *
- * 用 **Range GET**（只取 1 字节）而不是 HEAD：
- * HEAD 在 GitHub Pages 上会被中断（net::ERR_ABORTED），
- * 探测请求本身反而把要探测的资源搞崩了——本地 dev server 支持 HEAD，
- * 所以这个问题只在真实部署环境才暴露。
+ * 两个必须避开的坑，都是"探测本身把资源搞坏"：
+ *
+ * 1. 不能用 HEAD。GitHub Pages 会对大文件的 HEAD 响应直接中断（net::ERR_ABORTED）。
+ *    所以用 `Range: bytes=0-0`，200/206 都算可用。
+ *
+ * 2. **探测请求绝不能和 SDK 的下载共用同一个 URL。**
+ *    GitHub Pages 返回 `Cache-Control: max-age=600`，浏览器会把
+ *    `bytes=0-0` 的**部分响应**按完整 URL 缓存下来。SDK 随后请求同一 URL
+ *    时命中这个 1 字节缓存，`extractTarEntries` 拿到 1 字节后
+ *    报 `Entry "inference.onnx" was not found in the tar archive`。
+ *    2026-09-26 实际发生，且因为依赖缓存状态而时好时坏，极难复现。
+ *
+ * 对策：探测 URL 追加唯一 query，并加 `cache: 'no-store'`，
+ * 保证它既不进缓存、也不会命中 SDK 留下的缓存。
  */
 export async function paddleModelStatus() {
+  const nonce = Date.now().toString(36)
   const checks = await Promise.all(
     paddleAssetManifest().map(async (asset) => {
+      const probeUrl = `${asset.url}?probe=${nonce}`
       try {
-        const res = await fetch(asset.url, { headers: { Range: 'bytes=0-0' } })
-        // 200（忽略 Range）或 206（部分内容）都算可用
+        const res = await fetch(probeUrl, { headers: { Range: 'bytes=0-0' }, cache: 'no-store' })
         const ok = res.status === 200 || res.status === 206
-        // 读掉响应体，避免连接悬挂
         await res.arrayBuffer().catch(() => null)
         return { name: asset.name, ok, status: res.status, approxBytes: asset.approxBytes }
       } catch {
