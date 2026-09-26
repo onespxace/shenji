@@ -162,10 +162,19 @@
 
 ## 自动化验证
 
+日常改动**按改动范围选最小验证集**（判定矩阵见 `docs/HANDOVER.md` §13），不要每次都跑全量：
+
+```powershell
+npm run validate:<模块>     # 如 validate:profit-journal、validate:ocr-pipeline、validate:model-assets
+npm run build               # UI / 样式 / 文案改动只需这一个
+npm run probe:browser -- --url http://localhost:4288   # 浏览器行为探针（需先 build + preview）
+```
+
+发布前（RELEASE）才跑全量：
+
 ```powershell
 npm run validate:all        # 11 组断言
 node scripts/validate-summary.mjs   # 汇总表（以它为准）
-npm run probe:browser -- --url http://localhost:4288   # 浏览器行为探针（需先 build + preview）
 ```
 
 包含 11 组断言检查，共 671 条（能起子进程的环境里是 673 条）：
@@ -191,7 +200,18 @@ npm run probe:browser -- --url http://localhost:4288   # 浏览器行为探针�
 断言只覆盖纯逻辑，证明不了"页面点得动"。因此另有**浏览器行为探针**：
 
 ```powershell
-npm run probe:all        # 需先 npm run build 并起 preview（默认 4288）
+npm run probe:browser    # 全部视图的交互断言
+npm run probe:layout     # 11 个工作台视口 + 4 个落地页视口
+npm run probe:shots      # 落地页排版断言 + 截图
+npm run probe:router     # 路由行为
+npm run probe:all        # 以上全部（发布前跑）
+```
+
+场景文件里混有多个视图时，可用 `--only` 只跑相关的那几个
+（命中 0 个会报错退出，不会静默当通过）：
+
+```powershell
+node scripts/browser-probe.mjs --scenario scripts/scenarios/layout-audit.json --only 落地页
 ```
 
 用真实 Chromium 逐页加载构建产物，执行交互断言、捕获控制台异常与警告，并且**真的下载

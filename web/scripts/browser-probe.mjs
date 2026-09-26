@@ -37,6 +37,14 @@ const getArg = (name, fallback) => {
 const BASE = getArg('--url', 'http://localhost:4288').replace(/\/$/, '')
 const DEBUG_PORT = Number(getArg('--port', '9321'))
 const SCENARIO_FILE = getArg('--scenario', path.join(here, 'scenarios', 'auditdesk-smoke.json'))
+/**
+ * 视图名过滤：`--only 落地页` 只跑名字里含「落地页」的视图。
+ *
+ * 存在的理由：一次 UI 改动真正影响的往往只有几个视图，而一个场景文件里
+ * 混着所有视图。没有这个开关，局部改动就只能整文件跑，
+ * 于是「跑一次便宜的」变成「跑一整套不相关的」——这正是被要求避免的。
+ */
+const ONLY = getArg('--only', '')
 const KEEP_OPEN = args.includes('--keep')
 
 const CHROME_CANDIDATES = [
@@ -204,7 +212,19 @@ async function main() {
   try {
     await waitForDebugPort(DEBUG_PORT)
 
-    for (const view of scenario.views) {
+    // --only 命中 0 个视图时要报错退出：静默跑 0 条会被读成「通过」，
+  // 那比不跑更危险（断言没跑，结论却像跑过了）。
+    const views = ONLY ? scenario.views.filter((v) => v.name.includes(ONLY)) : scenario.views
+    if (ONLY) {
+      console.log(`\n[--only ${ONLY}] 命中 ${views.length}/${scenario.views.length} 个视图`)
+      if (!views.length) {
+        console.error(`没有视图名包含「${ONLY}」。现有视图：\n  ` + scenario.views.map((v) => v.name).join('\n  '))
+        process.exitCode = 1
+        return
+      }
+    }
+
+    for (const view of views) {
       console.log(`\n=== ${view.name}  (${view.route}) ===`)
       // route 允许写完整 URL：这样同一套探针也能去测 web/ 根目录下的
       // 独立探针页（router-audit.html 等），不必再复制一份引擎

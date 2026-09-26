@@ -40,6 +40,9 @@ npx vite preview --port 4288 --strictPort     # 另开终端常驻
 
 ### 2.2 静态断言（不需要浏览器）
 
+> 本节是**发布前的全量验收**。日常改动不要跑全量，
+> 按 `docs/HANDOVER.md` §13「验证策略」选最小集（UI 改动只需 `build`）。
+
 ```bash
 npm run validate:all
 node scripts/validate-summary.mjs

@@ -13,10 +13,13 @@
 
 - 开发：`cd web && npm run dev`
 - 构建：`cd web && npm run build`
-- 全量断言：`cd web && npm run validate:all`
-- 断言汇总表：`cd web && npm run validate:summary`
+- 单模块断言：`cd web && npm run validate:<模块>`（见 §13 矩阵）
+- 浏览器行为：`cd web && npm run probe:<场景>`，可加 `--only <关键字>` 只跑相关视图
 - 产物体积：`cd web && npm run dist:sizes`
 - 部署：静态站点，`web/dist` 推到 `github-pages/`。详见 `docs/GITHUB_PAGES_DEPLOY.md`
+
+> ⚠️ **改代码前先读 §13「验证策略」。**
+> `validate:all` / `probe:all` 是**发布前（RELEASE）才用**的命令，不是每次改完的默认动作。
 
 线上工作台：`https://onespxace.github.io/shenji/`，PPT 在 `/deck.html`。
 
@@ -251,11 +254,27 @@ cp layout-audit.html lazy-audit.html router-audit.html dist/
 npx vite preview --port 4288 --strictPort          # 另开一个终端常驻
 ```
 
-然后一条命令跑完全部浏览器行为验证：
+然后**按改动范围**跑（不要每次都 `probe:all`）：
 
 ```bash
-npm run probe:all        # = browser + layout + lazy + router
+npm run probe:browser    # 全部视图的交互断言（含真实下载导出文件读回核对）
+npm run probe:layout     # 11 个工作台视口 + 4 个落地页视口
+npm run probe:shots      # 落地页排版断言 + 截图到 web/.probe-shots/
+npm run probe:router     # 路由行为（刷新保持 / 前进后退 / 回首页）
+npm run probe:lazy       # 首屏零重资源 / 按需加载 / KeepAlive
+npm run probe:lazy-failure  # 拦掉 chunk → 失败界面 → 放开 → 出口真能恢复
+npm run probe:all        # 上面全部（发布前跑）
 ```
+
+场景文件里混着多个视图时，用 `--only` 只跑相关的那几个：
+
+```bash
+node scripts/browser-probe.mjs --scenario scripts/scenarios/layout-audit.json --only 落地页
+node scripts/browser-probe.mjs --scenario scripts/scenarios/auditdesk-smoke.json --only 落地页
+```
+
+`--only` 命中 0 个视图会**报错退出并列出可用视图名**——刻意不静默通过：
+跑 0 条被读成「绿了」比不跑更危险。
 
 | 命令 | 做什么 | 失败时会怎样 |
 | --- | --- | --- |
@@ -584,8 +603,10 @@ npm run probe:shots        # 生成 .probe-shots/landing-1440.png 与 landing-39
 ```
 
 **为什么值得加**：断言能证明"元素存在"，证明不了"好不好看"。落地页的排版
-（3 栏事实区、7 张卡片在 1440 排成 3+3+1、390 收成单列）就是靠截图逐张看过的，
+（三栏事实区、卡片网格怎么分行、390 收成单列）就是靠截图逐张看过的，
 不是靠断言推出来的。`.probe-shots/` 已 gitignore。
+
+> 注：卡片网格后来从 3 列（3+3+1）改成了 4 列（4+3），见 §14。
 
 ### 12.5 验证
 
@@ -597,4 +618,128 @@ npm run probe:shots        # 生成 .probe-shots/landing-1440.png 与 landing-39
 | `npm run probe:lazy` | 2/2（步骤内部 14 条） |
 | `npm run probe:lazy-failure` | 5/5 |
 | `npm run probe:router` | 21/21（新增落地页与"回首页"共 6 条） |
+
+---
+
+## 13. 验证策略：最小验证集（**改代码前先读这一节**）
+
+> 这一节是用户明确要求的硬性工作方式。**把 `validate:all` 当每次改完的默认命令是被禁止的。**
+
+### 13.1 流程
+
+```
+分析改动范围 → 定 riskLevel → 改 → 最小验证 → 失败则针对性修
+                                              → 阶段结束才 build
+                                              → 发布前才 validate:all + probe:all
+```
+
+### 13.2 riskLevel 与默认验证
+
+| riskLevel | 判断依据 | 跑什么 |
+| --- | --- | --- |
+| **LOW** | 只改样式 / 文案 / Vue 模板 / 间距 / 颜色 / 响应式布局 | `npm run build`；改排版加 `validate:typography`，改编码加 `validate:encoding` |
+| **MEDIUM** | 只碰一个业务模块 | 对应的单条 `validate:*`：`accounting` / `profit-journal` / `csv-export` / `ocr-pipeline` / `ocr-quality` / `model-assets` / `router` / `showcase` / `deck` / `markdown` / `tools` |
+| **HIGH** | 动公共数据结构、共享工具函数、全局状态、入口文件（`App.vue`/`router.js`）、构建配置、`package.json`、多个模块之间的数据契约 | 先针对性验证 → `npm run build` → **按实际影响**决定要不要全量。不要默认全量 |
+| **RELEASE** | 提交完整版本 / 发布 GitHub Pages / 改了依赖或构建系统 / 修难以定位的跨模块 bug / 用户明确要求「完整回归」 | `validate:all` + `probe:all` + `build` |
+
+**build 与 validate 的分工**：`build` 解决编译、打包、资源路径、chunk、静态部署；
+`validate:*` 解决业务断言、模型资源、OCR pipeline、文案/编码回归。
+**UI 改动 build 更要紧；OCR pipeline 改动对应 validate 更要紧。**
+
+### 13.3 连续小改不要重复验证
+
+同一 phase 内改 10 个文件（颜色 → 间距 → 按钮 → 标题），不要每步都验证一次。
+**改完一批 → 一次 build → 必要时一次针对性验证 → phase 收尾。**
+
+### 13.4 用 `--only` 代替整文件全跑
+
+场景文件里混着多个视图时：
+
+```bash
+node scripts/browser-probe.mjs --scenario scripts/scenarios/layout-audit.json --only 落地页
+```
+
+命中 0 个视图会报错退出并列出可用视图名（不静默通过）。
+
+### 13.5 失败时升级，而不是预防性全量
+
+`build` 失败就先修 build；某条 `validate:*` 失败就先修那一条。
+**不要因为一个小测试失败就跳去跑全量。** 只有出现跨模块异常时才扩大范围。
+
+### 13.6 输出格式
+
+每次改完只说明三件事，不贴几十行无关输出：
+
+```
+Changed:     改了哪些文件
+Impact:      影响面（如 "UI only"）
+Verification: 跑了哪条命令、结果
+Reason:      为什么这个范围够（如 "no business/OCR logic affected"）
+```
+
+**若跑了全量，必须说明为什么需要全量回归。**
+
+### 13.7 演进：`validate:*` 的分层不是一成不变的
+
+新增模块时补一条对应的 `validate:<模块>`，并加进本节矩阵——
+否则下次改那个模块就只剩"跑全量"一条路可走。
+
+---
+
+## 14. 落地页加徽标 + 精简（用户：「添加徽标并且精简一些，参考优秀设计」）
+
+### 14.1 改了什么
+
+- **徽标**：复用 `src/assets/brand/emblem-128.png`（与工作台顶栏同一个资源，
+  Vite 去重后不新增请求），渲染 60px 圆形 + 机构署名
+  「郑州工商学院 · 审计学本科2501班」。落地页此前**没有任何品牌标识**，
+  hero 直接以 eyebrow 文字开场。
+- **精简**：删掉 hero 的 eyebrow（徽标已承担品牌信息）、去掉模块卡的 `lead` 标签层、
+  hero CTA 从 3 个减到 2 个、三条原则从三小段压成一行（带 ✓ 与上分隔线）、
+  卡片从「icon + 标题 + lead + 两行说明」压成「icon 与标题同行 + 说明独占一行」。
+  页面总高约 1131px → 1010px。
+
+### 14.2 卡片为什么是 4 + 3
+
+`grid-template-columns: repeat(auto-fill, minmax(252px, 1fr))` 在 1120px 容器里
+落到 **4 列**（每列 257px），7 张卡自然排成 4 + 3。
+`minmax` **不能低于 250px**：再小会掉到 5 列，每列装不下一行说明。
+
+### 14.3 踩到的坑：限宽加错层级
+
+`.landing-hero { max-width: 780px }` 会把装在里面的一切都限住，
+于是三条原则被挤成两行。**限宽要加在正文元素（`.landing-lead`）上，
+不要加在整块容器上。**
+
+### 14.4 断言从「截图存证」升级成实质断言（14 条）
+
+原来 `landing-shots` 只有 `cards===7 && facts===3` + 截图。新增：
+
+| 断言 | 怎么测 |
+| --- | --- |
+| 徽标已渲染且带 `alt`（无障碍） | `getBoundingClientRect()` ≥ 48px 且 `alt` 非空 |
+| **同一行卡片等高** | 按 `offsetTop` 分组，组内高度集合大小为 1 |
+| 卡片等宽且排成 4 + 3 | 宽度集合大小 = 1，每行张数 = `[4,3]` |
+| **每条卡片说明不换行** | `Range.selectNodeContents(el).getClientRects().length === 1` |
+| 主张一行放得下 | 同上，测 `.landing-lead` |
+| 三条原则排在同一行 | 三个 `li` 的 `offsetTop` 相同 |
+
+数行数用 `Range.getClientRects()`——比肉眼看图可靠，比 `scrollHeight` 判断准。
+
+`probe:all` 已纳入 `probe:shots`。
+
+### 14.5 本轮验证（按 §13 的新策略执行，并非全量）
+
+改动属 **LOW**（只动落地页的模板 / 样式 / 文案，未碰业务逻辑与懒加载），
+因此只跑落地页相关的四组：
+
+| 命令 | 结果 |
+| --- | --- |
+| `probe:shots` | 14/14 |
+| `layout-audit --only 落地页` | 8/8（4 个视口 × 前置检查 + 不变量） |
+| `auditdesk-smoke --only 落地页` | 6/6 |
+| `probe:router` | 21/21 |
+
+合计 **49 条，0 失败，控制台 0 错误 / 0 警告**。
+未跑 `probe:lazy` / `probe:lazy-failure` 与各业务模块断言——没有对应改动。
 

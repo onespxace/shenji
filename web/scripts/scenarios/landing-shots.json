@@ -8,9 +8,37 @@
       "expect": "!!document.querySelector('.landing-title')",
       "steps": [
         {
-          "label": "桌面 1440 落地页",
-          "shot": ".probe-shots/landing-1440.png",
+          "label": "桌面 1440：7 卡片 / 3 原则 / 无横向滚动",
           "run": "const doc=document.documentElement; const cards=document.querySelectorAll('.module-card').length; const facts=document.querySelectorAll('.landing-facts li').length; return { ok: cards===7 && facts===3 && doc.scrollWidth<=doc.clientWidth+1, detail: 'cards='+cards+' facts='+facts+' scrollW='+doc.scrollWidth+' clientW='+doc.clientWidth }"
+        },
+        {
+          "label": "徽标已渲染且带替代文本（无障碍）",
+          "run": "const img=document.querySelector('.landing-emblem img'); if(!img) return {ok:false,detail:'落地页没有徽标'}; const r=img.getBoundingClientRect(); return { ok: r.width>=48 && r.height>=48 && !!img.alt.trim(), detail: 'w='+Math.round(r.width)+' h='+Math.round(r.height)+' alt='+(img.alt||'（空）') }"
+        },
+        {
+          "label": "同一行卡片等高（说明换行也不该把行撑歪）",
+          "run": "const cards=[...document.querySelectorAll('.module-card')]; const rows=new Map(); for(const c of cards){ const k=c.offsetTop; if(!rows.has(k)) rows.set(k,[]); rows.get(k).push(Math.round(c.getBoundingClientRect().height)) } const bad=[...rows.values()].filter(hs=>new Set(hs).size>1); return { ok: bad.length===0 && rows.size===2, detail: bad.length?('行内高度不一致：'+JSON.stringify(bad)):(rows.size+' 行，行内等高') }"
+        },
+        {
+          "label": "卡片等宽且排成 4 + 3",
+          "run": "const cards=[...document.querySelectorAll('.module-card')]; const ws=[...new Set(cards.map(c=>Math.round(c.getBoundingClientRect().width)))]; const rows=new Map(); for(const c of cards){ const k=c.offsetTop; rows.set(k,(rows.get(k)||0)+1) } const counts=[...rows.values()].sort((a,b)=>b-a); return { ok: ws.length===1 && counts.join(',')==='4,3', detail: '宽度集合='+JSON.stringify(ws)+' 每行张数='+JSON.stringify(counts) }"
+        },
+        {
+          "label": "每条卡片说明都不换行（一行读完才算精简到位）",
+          "run": "const multi=[]; for(const el of document.querySelectorAll('.module-detail')){ const r=document.createRange(); r.selectNodeContents(el); const lines=r.getClientRects().length; if(lines>1) multi.push(el.textContent.trim()+'('+lines+'行)') } return { ok: multi.length===0, detail: multi.length?multi.join('；'):'7/7 均单行' }"
+        },
+        {
+          "label": "主张一行读完（不出现末尾几个字掉到第二行）",
+          "run": "const el=document.querySelector('.landing-lead'); if(!el) return {ok:false,detail:'没有主张段落'}; const r=document.createRange(); r.selectNodeContents(el); const lines=r.getClientRects().length; return { ok: lines===1, detail: '占 '+lines+' 行：'+el.textContent.trim() }"
+        },
+        {
+          "label": "三条原则排在同一行",
+          "run": "const lis=[...document.querySelectorAll('.landing-facts li')]; const tops=new Set(lis.map(li=>li.offsetTop)); return { ok: lis.length===3 && tops.size===1, detail: 'li='+lis.length+' 占 '+tops.size+' 行' }"
+        },
+        {
+          "label": "截图存证",
+          "shot": ".probe-shots/landing-1440.png",
+          "run": "return { ok:true }"
         }
       ]
     },
@@ -21,9 +49,21 @@
       "expect": "!!document.querySelector('.landing-title')",
       "steps": [
         {
-          "label": "手机 390 落地页",
-          "shot": ".probe-shots/landing-390.png",
+          "label": "手机 390：7 卡片 / 无横向滚动",
           "run": "const doc=document.documentElement; const cards=document.querySelectorAll('.module-card').length; return { ok: cards===7 && doc.scrollWidth<=doc.clientWidth+1, detail: 'cards='+cards+' scrollW='+doc.scrollWidth+' clientW='+doc.clientWidth }"
+        },
+        {
+          "label": "窄屏卡片收成单列",
+          "run": "const cards=[...document.querySelectorAll('.module-card')]; const lefts=new Set(cards.map(c=>Math.round(c.getBoundingClientRect().left))); const tops=new Set(cards.map(c=>c.offsetTop)); return { ok: lefts.size===1 && tops.size===cards.length, detail: '左边界数='+lefts.size+' 纵向位置数='+tops.size+'/'+cards.length }"
+        },
+        {
+          "label": "窄屏徽标仍可见",
+          "run": "const img=document.querySelector('.landing-emblem img'); if(!img) return {ok:false,detail:'没有徽标'}; const r=img.getBoundingClientRect(); return { ok: r.width>=40 && r.height>=40, detail: 'w='+Math.round(r.width)+' h='+Math.round(r.height) }"
+        },
+        {
+          "label": "截图存证",
+          "shot": ".probe-shots/landing-390.png",
+          "run": "return { ok:true }"
         }
       ]
     }

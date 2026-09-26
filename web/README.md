@@ -31,8 +31,14 @@ npm run preview
 验证 8 个审计工具、会计科目识别、凭证检查和 Markdown 渲染的本地样例：
 
 ```powershell
-npm run validate:all
+npm run validate:all        # 发布前的全量验收
 ```
+
+**日常改动不要跑全量。** 按改动范围选最小验证集（判定矩阵见 `../docs/HANDOVER.md` §13）：
+只改样式 / 文案用 `npm run build`；只改一个模块跑对应的
+`npm run validate:<模块>`（如 `validate:profit-journal`、`validate:ocr-pipeline`）。
+浏览器行为同理：`probe:layout` / `probe:shots` / `probe:router` 按需选，
+或给场景加 `--only <关键字>` 只跑相关视图。
 
 样例台账文件位于 `public/samples/audit-tool-demo.csv`，也可以在数据分析页直接载入。
 
