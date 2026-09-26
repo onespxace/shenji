@@ -81,6 +81,11 @@ const showCells = ref(false)
 const structuredBusy = ref(false)
 const qualityOverride = ref(false)
 const paddleMissing = ref(false)
+const paddleCacheIssue = ref(false)
+// 强制刷新：绕过 index.html 的 max-age=600，否则用户最长 10 分钟拿到的还是旧 bundle
+function hardReload() {
+  if (typeof window.location.reload === 'function') window.location.reload()
+}
 const qualityChecking = ref(false)
 // 质量闸门前移后，"是否放行 OCR"变成用户的显式选择，而不是默默识别
 const qualityBlocker = computed(() => imageQuality.value?.level === 'poor')
@@ -121,10 +126,13 @@ async function runStructuredOcr(force = false) {
     structuredStatus.value = `识别完成 · ${result.processingTime} ms · 定向重识别 ${result.reRecognized} 个字段`
     if (result.fields.length) ocrConfidence.value = Math.round((result.summary.overall || 0) * 100)
   } catch (error) {
-    // 模型缺失是可预期的降级场景，要说清楚怎么办，而不是抛一堆 WASM 报错
+    // 两类可预期的降级场景都要说清楚怎么办，而不是抛英文原文
     if (error?.code === 'PADDLE_MODELS_MISSING') {
       structuredStatus.value = 'PaddleOCR 模型未随站点部署，本次未识别。可改用 Tesseract 继续，准确率较低但可用。'
       paddleMissing.value = true
+    } else if (error?.code === 'PADDLE_CACHE_POISONED') {
+      structuredStatus.value = error.message
+      paddleCacheIssue.value = true
     } else {
       structuredStatus.value = `识别失败：${error.message || error}`
     }
@@ -267,6 +275,7 @@ async function handleVoucherFile(file) {
   structured.value = null
   structuredStatus.value = ''
   paddleMissing.value = false
+  paddleCacheIssue.value = false
   // 质量闸门前移：选图后立刻评估，不等 OCR 跑完。
   // 目的是让用户在"识别之前"就知道这张图值不值得识别。
   qualityChecking.value = true
@@ -452,6 +461,14 @@ onBeforeUnmount(() => {
                   <div v-if="paddleMissing" class="quality-gate is-warn mt-12">
                     <p>PaddleOCR 模型未随站点部署，本次未识别。可以改用 Tesseract 继续，准确率较低但可用；或在本地执行 <code>npm run sync:paddle</code> 后重新构建。</p>
                     <el-button size="small" @click="engineChoice = 'tesseract'">改用 Tesseract</el-button>
+                  </div>
+                  <div v-if="paddleCacheIssue" class="quality-gate is-warn mt-12">
+                    <p>{{ structuredStatus }}</p>
+                    <p class="text-muted text-small">原因：浏览器缓存了不完整的模型文件。模型本身是好的，强制刷新即可恢复；不方便刷新也可以先改用 Tesseract。</p>
+                    <div class="flex-wrap">
+                      <el-button size="small" type="warning" plain @click="hardReload">强制刷新页面</el-button>
+                      <el-button size="small" @click="engineChoice = 'tesseract'">改用 Tesseract</el-button>
+                    </div>
                   </div>
                   <div v-if="structuredBusy" class="text-muted text-small">正在识别：{{ structuredStatus }}（{{ ocrProgress }}%）</div>
                   <div v-else-if="qualityBlocker && !qualityOverride" class="text-muted text-small">照片质量不足，已暂缓识别。可在上面的提示里选择重新拍摄或仍要继续。</div>
