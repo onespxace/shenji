@@ -37,6 +37,7 @@ github-pages/
 ```text
 github-pages/
 ├─ index.html
+├─ deck.html
 ├─ assets/
 ├─ ocr/
 ├─ samples/

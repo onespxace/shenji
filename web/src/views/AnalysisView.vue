@@ -164,6 +164,26 @@ function loadSample() {
   result.value = null
 }
 
+// 教学页的“载入并运行”：把用例自带的数据与参数带进来并立即执行。
+function loadShowcase(payload) {
+  if (!payload || !payload.csv) return
+  const table = auditTools.toTable(auditTools.parseCSV(payload.csv))
+  if (!table.headers.length) return
+  dataset.value = { ...table, filename: `用例：${payload.title || '自定义样例'}` }
+  setDefaultParams()
+  if (payload.tool && toolMap[payload.tool]) activeTool.value = payload.tool
+  const patch = payload.params || {}
+  for (const key of Object.keys(patch)) {
+    if (Object.prototype.hasOwnProperty.call(params, key)) params[key] = patch[key]
+  }
+  result.value = null
+  nextTick(() => {
+    runAnalysis()
+    const el = document.querySelector('.tool-workspace')
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+}
+
 function runValidation() {
   validationRunning.value = true
   // 让按钮先进入加载状态，再执行本地确定性样例检查。
@@ -340,13 +360,16 @@ function downloadResult() {
 
 function openImportFromShell() { openFilePicker() }
 function focusToolSearch() { toolFilterInput.value?.focus() }
+function runShowcaseFromShell(event) { loadShowcase(event.detail) }
 onMounted(() => {
   window.addEventListener('auditdesk:import', openImportFromShell)
   window.addEventListener('auditdesk:focus-search', focusToolSearch)
+  window.addEventListener('auditdesk:run-showcase', runShowcaseFromShell)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('auditdesk:import', openImportFromShell)
   window.removeEventListener('auditdesk:focus-search', focusToolSearch)
+  window.removeEventListener('auditdesk:run-showcase', runShowcaseFromShell)
 })
 </script>
 
@@ -583,3 +606,5 @@ onBeforeUnmount(() => {
 @media (max-width: 900px) { .validation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .validation-grid { grid-template-columns: 1fr; } }
 </style>
+
+

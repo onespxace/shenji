@@ -172,3 +172,31 @@ npx electron-builder --win portable --x64 --config.compression=store
 - **AI 问答重做**：新增零依赖 Markdown 渲染器 `web/src/lib/markdown.js`（先转义再解析，链接仅放行 http/https/mailto），改为 768px 限宽全宽消息流、深色代码块、带表头底色的表格、单条复制、自动增高输入框。断言见 `web/scripts/validate-markdown.mjs`（28 条）。
 - **移动端重排**：820px 及以下改用底部标签栏 + “更多”底部面板，隐藏英文 eyebrow 与装饰标签，表格横向滚动限制在容器内，聊天页会话列表改抽屉。验证工具 `web/mobile-check.html` 在 360/390/430/768px 下实测无横向溢出。
 - **验证现状**：`npm run validate:all` = 8/8 工具 + 31/31 会计凭证 + 28/28 Markdown + 字号下限断言，全部通过。
+
+## 网页版使用教程与功能 PPT
+
+- **使用教程与用例**（应用内）：顶部导航新增「使用教程」页，含快速上手、用例演示、
+  功能导览与常见问题四个标签。10 个用例可「载入并运行」，会直接跳到对应页面并执行。
+- **功能介绍 PPT**（`/deck.html`）：14 页网页式演示文稿，覆盖痛点、定位、模块、
+  技术规范、质量保障与部署。键盘翻页、总览模式、全屏演示、手机滑动，
+  打印可导出为一页一张的 PDF。
+- **用例库** `web/src/lib/showcase.js`：每个用例自带样例数据、审计目标、准则依据
+  与可验证的预期结果，由 `npm run validate:showcase` 校验，文档与行为不会脱节。
+- **多页构建**：`vite.config.js` 改为 `rollupOptions.input` 双入口，
+  `export-pages.mjs` 增加入口文件守卫，缺少 index.html 或 deck.html 时直接失败。
+
+## 2.2 第三批改动：教学与展示
+
+- 新增 `web/src/views/TutorialView.vue`、`web/deck.html`、`web/src/deck/`（slides / render / deck.css）。
+- `render.js` 把幻灯片 HTML 构建抽为纯函数，`validate-deck.mjs` 对**渲染结果**做断言。
+  起因是数据层有标题、渲染层却未输出，导致 14 页里 13 页没有标题——
+  只检查数据字段的断言无法发现这类问题。
+- 修正 PPT 舞台居中方式：舞台固定 1280px 宽于窄屏时，
+  grid/flex 居中会被安全对齐钳到起点，缩放后整体偏出视口；改为绝对定位 + translate 居中。
+- **修复 10 个文件的 UTF-8 BOM**：PowerShell 5.1 的 `Set-Content -Encoding UTF8` 会写 BOM，
+  导致 PostCSS 配置加载失败、构建中断。新增 `web/scripts/fix-bom.mjs` 检测并清除，
+  并接入 `validate:all` 防止复发。
+- 移动端底部标签重新排序为 数据分析 / 会计基础 / AI 问答 / 教程 + 更多，
+  底稿文书、法规速查、设置收进「更多」面板，保持每格足够宽。
+- 验证现状：`npm run validate:all` = 8 + 35 + 28 + 20 + 167 条断言 + 字号与编码全量扫描，
+  共 7 组检查全部通过。

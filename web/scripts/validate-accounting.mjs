@@ -1,4 +1,4 @@
-﻿import process from 'node:process'
+import process from 'node:process'
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'

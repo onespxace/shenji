@@ -10,7 +10,8 @@ import {
   Upload,
   QuestionFilled,
   CircleCheckFilled,
-  Grid
+  Grid,
+  Reading
 } from '@element-plus/icons-vue'
 import AnalysisView from './views/AnalysisView.vue'
 import AccountingView from './views/AccountingView.vue'
@@ -18,6 +19,7 @@ import DocumentsView from './views/DocumentsView.vue'
 import KnowledgeView from './views/KnowledgeView.vue'
 import ChatView from './views/ChatView.vue'
 import SettingsView from './views/SettingsView.vue'
+import TutorialView from './views/TutorialView.vue'
 import emblemUrl from './assets/brand/emblem-128.png'
 
 const activeView = ref('analysis')
@@ -30,17 +32,20 @@ const navItems = [
   { id: 'documents', label: '底稿文书', icon: Document },
   { id: 'knowledge', label: '法规速查', icon: Search },
   { id: 'chat', label: 'AI 问答', icon: ChatDotRound },
+  { id: 'tutorial', label: '使用教程', icon: Reading },
   { id: 'settings', label: '设置', icon: Setting }
 ]
 
-// 移动端底部标签只保留 5 个高频入口，其余收进“更多”，避免每格过窄
+// 移动端底部标签只保留 4 个高频入口 + “更多”，避免每格过窄；
+// 底稿、法规速查、设置收进“更多”面板。
 const tabItems = [
   { id: 'analysis', label: '数据分析', icon: DataAnalysis },
   { id: 'accounting', label: '会计基础', icon: Tickets },
-  { id: 'documents', label: '底稿', icon: Document },
-  { id: 'chat', label: 'AI 问答', icon: ChatDotRound }
+  { id: 'chat', label: 'AI 问答', icon: ChatDotRound },
+  { id: 'tutorial', label: '教程', icon: Reading }
 ]
 const moreItems = [
+  { id: 'documents', label: '底稿文书', desc: '询证函、监盘表、调整汇总表', icon: Document },
   { id: 'knowledge', label: '法规速查', desc: '准则与实务指引离线搜索', icon: Search },
   { id: 'settings', label: '设置', desc: 'AI 接口与本地工作区', icon: Setting }
 ]
@@ -51,6 +56,7 @@ const pageMeta = {
   documents: { crumb: '工作台 / 底稿文书', eyebrow: 'Working papers', title: '底稿文书' },
   knowledge: { crumb: '知识与协作 / 法规速查', eyebrow: 'Knowledge base', title: '法规速查' },
   chat: { crumb: '知识与协作 / AI 问答', eyebrow: 'Audit copilot', title: 'AI 问答' },
+  tutorial: { crumb: '帮助 / 使用教程', eyebrow: 'Guide & cases', title: '使用教程与用例' },
   settings: { crumb: '系统 / 设置', eyebrow: 'Workspace settings', title: '设置' }
 }
 const currentMeta = computed(() => pageMeta[activeView.value] || pageMeta.analysis)
@@ -146,6 +152,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
         <DocumentsView v-else-if="activeView === 'documents'" />
         <KnowledgeView v-else-if="activeView === 'knowledge'" />
         <ChatView v-else-if="activeView === 'chat'" />
+        <TutorialView v-else-if="activeView === 'tutorial'" />
         <SettingsView v-else />
       </div>
     </main>
@@ -217,3 +224,4 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
 .guide-step strong { color: var(--ink-900); font-size: 0.9375rem; }
 .guide-step p { margin: 3px 0 0; color: var(--ink-500); font-size: 0.875rem; line-height: 1.6; }
 </style>
+

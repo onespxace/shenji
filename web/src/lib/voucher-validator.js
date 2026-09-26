@@ -1,4 +1,4 @@
-﻿import { classifyAccount } from './accounting-data.js'
+import { classifyAccount } from './accounting-data.js'
 
 const DATE_PATTERN = /((?:19|20)\d{2})\s*[年./\\-]\s*(\d{1,2})\s*[月./\\-]\s*(\d{1,2})\s*日?/
 const VOUCHER_NUMBER_PATTERNS = [

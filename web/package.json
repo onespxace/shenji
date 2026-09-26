@@ -13,8 +13,11 @@
     "validate:tools": "node scripts/validate-tools.mjs",
     "validate:accounting": "node scripts/validate-accounting.mjs",
     "validate:markdown": "node scripts/validate-markdown.mjs",
+    "validate:showcase": "node scripts/validate-showcase.mjs",
+    "validate:deck": "node scripts/validate-deck.mjs",
     "validate:typography": "node scripts/migrate-typography.mjs",
-    "validate:all": "npm run validate:tools && npm run validate:accounting && npm run validate:markdown && npm run validate:typography",
+    "validate:encoding": "node scripts/fix-bom.mjs",
+    "validate:all": "npm run validate:tools && npm run validate:accounting && npm run validate:markdown && npm run validate:showcase && npm run validate:deck && npm run validate:typography && npm run validate:encoding",
     "sync:ocr": "node scripts/sync-ocr-assets.mjs",
     "make:brand": "node scripts/make-brand-assets.mjs",
     "export:pages": "node scripts/export-pages.mjs"
@@ -30,3 +33,4 @@
     "vite": "^8.3.1"
   }
 }
+

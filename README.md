@@ -118,3 +118,13 @@ API Key 使用 Electron `safeStorage` 保存。研究助手只用于资料整理
 - Excel 底稿模板和复核签核；
 - Windows Credential Manager / DPAPI；
 - 多人协作、权限、审计日志和项目备份恢复。
+
+## 网页版入口
+
+| 页面 | 地址 |
+| --- | --- |
+| 工作台 | `https://onespxace.github.io/shenji/` |
+| 功能介绍 PPT | `https://onespxace.github.io/shenji/deck.html` |
+
+功能 PPT 共 14 页，支持键盘翻页、总览模式与全屏演示；应用内「使用教程与用例」页
+提供上手步骤与 10 个可一键运行的审计用例。
