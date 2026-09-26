@@ -35,11 +35,12 @@
 | 页面懒加载 | 首屏 JS 405 → **256 KB gzip**；浏览器探针 11 条通过（首屏零 OCR 重资源、按需加载 chunk、KeepAlive 保活、**无任何资源被重复请求**） |
 | 模型自托管入库 | `validate:model-assets` 18 条通过，含 git blob 与工作区 SHA-256 比对 |
 | 利润计算器 / 分录生成器内核 | `validate:profit-journal` **147 条**通过 |
+| 落地页 → 工作台两级入口 | 路由 `standalone` 标记；`validate:router` 42 条；浏览器 4 个落地页视口 + 5 条交互断言 |
 | 利润计算表导出 | `validate:csv-export` **40 条**通过；浏览器探针**真的下载并读回文件**核对 BOM、表头、金额、行数 |
 | 分录生成导出 | 同上（`buildEntryExport` 断言 + 真实下载校验） |
 | 桌面端导航溢出（1024/1280） | §3，21 个视口实测；本轮又用 11 个视口复测 |
-| 全量断言 | `node scripts/validate-summary.mjs` → **664 条 / 11 组，0 失败** |
-| 浏览器行为 | `npm run probe:all` → **29 + 11 + 11 + 15 = 66 条，0 失败，控制台 0 错误** |
+| 全量断言 | `node scripts/validate-summary.mjs` → **671 条 / 11 组，0 失败**（能起子进程的环境里是 673 条，差的 2 条是模型资产的 git 校验，受限环境下报 `SKIP`） |
+| 浏览器行为 | `npm run probe:all` → **47 + 30 + 2 + 5 + 21 = 105 条，0 失败，控制台 0 错误** |
 
 ### 2.2 用户四项需求（本轮全部完成）
 
@@ -532,5 +533,68 @@ loading/error 组件）：
 | `npm run probe:lazy-failure` | 5/5（拦掉 chunk → 出失败界面 → 放开 → 点出口 → 内容真的回来） |
 | `npm run probe:router` | 15/15 |
 
-合计 **85 条**浏览器断言，0 失败。
+合计 **85 条**浏览器断言，0 失败。（这是该轮结束时的数字；加入落地页后见 §12.5。）
+
+---
+
+## 12. 新增落地页（用户要求「进去就是，再点才是现在的工具界面」）
+
+### 12.1 做法
+
+- 路由表新增 `home`，`DEFAULT_VIEW` 从 `analysis` 改为 `home`。
+- 新增路由字段 **`standalone: true`**：带这个标记的视图**不带工作台外壳**
+  （顶栏 / 底部标签栏 / 页面头），由 `App.vue` 整屏渲染。
+  导航列表 `navItems` 自动过滤掉 standalone 的视图——**黑名单写在路由表里，
+  不在 App 里再维护一份**，否则两处迟早不一致。
+- 新增 `web/src/views/HomeView.vue`（eager 静态引入，首屏即用）：
+  定位一句话 + 3 条设计原则 + 7 个模块卡片（点了直接进对应页面）+ 页脚。
+- 回落地页的三个入口：左上角徽标、顶栏首页按钮、手机端「更多」里的「返回首页」。
+- `activeComponent` 在落地页返回 `null`，而不是让它退化成 AnalysisView。
+
+### 12.2 落地页必须遵守的两条
+
+- **不带 crumb/页面头**。`validate-router` 里凡是"页面头"相关的断言都只针对
+  非 standalone 路由；落地页反而被断言**不应该**有 crumb。
+- **不能有横向滚动**，且 7 张卡片在 1920/1440/1280/768/390 都要出现。
+  由布局探针的 4 个落地页视口 + smoke 场景的窄屏断言覆盖。
+
+### 12.3 这次改动顺带暴露的三个坑
+
+1. **布局探针会量到"什么都没有"的页面。** 它原来不带 hash，靠默认视图；
+   默认视图变成落地页之后，落地页没有 `.top-nav`，于是所有布局断言都以
+   "导航不存在"的形式失败，看起来像布局坏了。现在探针有显式 `route`（默认 `#/analysis`），
+   并新增 `?route=%23/home` 来测落地页。
+2. **`__ready` 的判据要跟着页面形态走。** 原来只等 `.top-nav`，落地页永远等不到；
+   现在「`.top-nav` 或 `.landing-title`」二者有其一即算挂载。
+3. **`expect` 在探针页上下文里求值，不在 iframe 里。**
+   给落地页视口写 `expect: "!!document.querySelector('.landing-title')"` 会永远是 false——
+   那个元素在 iframe 内。探针页的 `expect` 只能断言探针页自己的东西（如 `window.__audit`），
+   页面内的事实交给步骤里的 `window.__audit()` 结果判断。
+
+另外修了探针自身一处**恒真写法**：截图步骤原来把 `ok` 写成
+`outcome?.ok !== false`，这会把"没返回 ok"也算通过。已改为严格 `=== true`。
+
+### 12.4 新增能力：截图复核
+
+`browser-probe.mjs` 支持 `view.viewport`（`Emulation.setDeviceMetricsOverride`）
+与步骤级 `shot`（`Page.captureScreenshot`，含超出视口部分）。
+
+```bash
+npm run probe:shots        # 生成 .probe-shots/landing-1440.png 与 landing-390.png
+```
+
+**为什么值得加**：断言能证明"元素存在"，证明不了"好不好看"。落地页的排版
+（3 栏事实区、7 张卡片在 1440 排成 3+3+1、390 收成单列）就是靠截图逐张看过的，
+不是靠断言推出来的。`.probe-shots/` 已 gitignore。
+
+### 12.5 验证
+
+| 项 | 结果 |
+| --- | --- |
+| `npm run validate:all` | **671** 条 / 11 组，0 失败（路由 35 → 42） |
+| `npm run probe:browser` | 47/47（新增落地页 5 条） |
+| `npm run probe:layout` | 30/30（11 个工作台视口 + 4 个落地页视口） |
+| `npm run probe:lazy` | 2/2（步骤内部 14 条） |
+| `npm run probe:lazy-failure` | 5/5 |
+| `npm run probe:router` | 21/21（新增落地页与"回首页"共 6 条） |
 

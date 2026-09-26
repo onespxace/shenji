@@ -121,6 +121,50 @@
         }
       ],
       "expect": "window.__audit"
+    },
+    {
+      "name": "落地页 · 1920px",
+      "route": "http://localhost:4288/layout-audit.html?w=1920&h=900&cb=landing0&route=%23/home",
+      "expect": "window.__audit",
+      "steps": [
+        {
+          "label": "1920 落地页布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:'探针页未就绪（先跑 npm run probe:prepare）'}; await window.__ready; await new Promise(r=>setTimeout(r,500)); const m=window.__audit(); const problems=[]; if(!m.landing) problems.push('不是落地页'); if(m.cardCount!==7) problems.push('模块卡片数='+m.cardCount); if(m.horizontalScroll) problems.push('横向滚动 '+m.bodyScrollW+'>'+m.docClientW); if(m.navPresent) problems.push('落地页不该有工作台导航'); return { ok: problems.length===0, detail: problems.length?problems.join('；'):('cards='+m.cardCount+' 视口宽='+m.docClientW) };"
+        }
+      ]
+    },
+    {
+      "name": "落地页 · 1280px",
+      "route": "http://localhost:4288/layout-audit.html?w=1280&h=900&cb=landing1&route=%23/home",
+      "expect": "window.__audit",
+      "steps": [
+        {
+          "label": "1280 落地页布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:'探针页未就绪（先跑 npm run probe:prepare）'}; await window.__ready; await new Promise(r=>setTimeout(r,500)); const m=window.__audit(); const problems=[]; if(!m.landing) problems.push('不是落地页'); if(m.cardCount!==7) problems.push('模块卡片数='+m.cardCount); if(m.horizontalScroll) problems.push('横向滚动 '+m.bodyScrollW+'>'+m.docClientW); if(m.navPresent) problems.push('落地页不该有工作台导航'); return { ok: problems.length===0, detail: problems.length?problems.join('；'):('cards='+m.cardCount+' 视口宽='+m.docClientW) };"
+        }
+      ]
+    },
+    {
+      "name": "落地页 · 768px",
+      "route": "http://localhost:4288/layout-audit.html?w=768&h=900&cb=landing2&route=%23/home",
+      "expect": "window.__audit",
+      "steps": [
+        {
+          "label": "768 落地页布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:'探针页未就绪（先跑 npm run probe:prepare）'}; await window.__ready; await new Promise(r=>setTimeout(r,500)); const m=window.__audit(); const problems=[]; if(!m.landing) problems.push('不是落地页'); if(m.cardCount!==7) problems.push('模块卡片数='+m.cardCount); if(m.horizontalScroll) problems.push('横向滚动 '+m.bodyScrollW+'>'+m.docClientW); if(m.navPresent) problems.push('落地页不该有工作台导航'); return { ok: problems.length===0, detail: problems.length?problems.join('；'):('cards='+m.cardCount+' 视口宽='+m.docClientW) };"
+        }
+      ]
+    },
+    {
+      "name": "落地页 · 390px",
+      "route": "http://localhost:4288/layout-audit.html?w=390&h=900&cb=landing3&route=%23/home",
+      "expect": "window.__audit",
+      "steps": [
+        {
+          "label": "390 落地页布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:'探针页未就绪（先跑 npm run probe:prepare）'}; await window.__ready; await new Promise(r=>setTimeout(r,500)); const m=window.__audit(); const problems=[]; if(!m.landing) problems.push('不是落地页'); if(m.cardCount!==7) problems.push('模块卡片数='+m.cardCount); if(m.horizontalScroll) problems.push('横向滚动 '+m.bodyScrollW+'>'+m.docClientW); if(m.navPresent) problems.push('落地页不该有工作台导航'); return { ok: problems.length===0, detail: problems.length?problems.join('；'):('cards='+m.cardCount+' 视口宽='+m.docClientW) };"
+        }
+      ]
     }
   ]
 }

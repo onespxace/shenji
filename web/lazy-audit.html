@@ -52,6 +52,18 @@ const res = () => w().performance.getEntriesByType('resource').map((e) => e.name
 const heavy = (u) => /ort-wasm|ort\.bundle|worker-entry|onnx|\.tar$|\/dist-[A-Za-z0-9_-]+\.js|paddleocr/i.test(u)
 const heavyNow = () => res().filter(heavy)
 /**
+ * 从落地页进入工作台。
+ * 落地页是 standalone 路由，不带顶栏导航；所有 clickNav 之前都要先过这一步。
+ */
+const enterWorkspace = async () => {
+  const btn = [...d().querySelectorAll('button')].find((b) => b.textContent.includes('进入工作台'))
+  if (!btn) throw new Error('落地页上找不到「进入工作台」按钮')
+  btn.click()
+  await waitFor(() => w().location.hash === '#/analysis' && d().querySelector('.top-nav-item'), 8000)
+  await sleep(300)
+}
+
+/**
  * 像用户一样点击导航项，并处理"项被收进「更多」下拉"的情况。
  *
  * 为什么必须处理：导航按视口宽度分层，「设置 / 使用教程」等在窄宽度下会收进
@@ -77,13 +89,21 @@ const clickNav = async (label) => {
 try {
   log('① 首屏加载（目标 ' + TARGET + '）', 'h')
   frame.src = TARGET
-  await waitFor(() => d() && d().querySelector('.page-title'))
+  await waitFor(() => d() && d().querySelector('.landing-title'))
   await sleep(1500)
-  check('首屏渲染出页面标题', (d().querySelector('.page-title')?.textContent.trim() || '') === '数据分析', d().querySelector('.page-title')?.textContent.trim())
+  check('首屏渲染的是落地页', (d().querySelector('.landing-title')?.textContent.trim() || '') === '审计工作台', d().querySelector('.landing-title')?.textContent.trim())
   const heavyFirst = heavyNow()
   check('首屏未请求任何 OCR 重资源', heavyFirst.length === 0, heavyFirst.slice(0, 3).join(' | ') || '（0 个）')
   check('首屏未加载会计基础 chunk', !res().some((u) => /AccountingView/.test(u)), '不应出现')
   check('首屏未加载 AI 问答 chunk', !res().some((u) => /ChatView/.test(u)), '不应出现')
+  check('落地页不显示工作台外壳', !d().querySelector('.app-shell'), '外壳已渲染')
+
+  log('①b 进入工作台', 'h')
+  // 落地页没有顶栏导航，后面所有 clickNav 都要先过这一步
+  await enterWorkspace()
+  await sleep(800)
+  check('进入工作台后首屏仍未拉 OCR 重资源', heavyNow().length === 0, heavyNow().slice(0, 3).join(' | ') || '（0 个）')
+  check('进入工作台后出现的仍是工作台外壳', !!d().querySelector('.app-shell'), '外壳缺失')
 
   log('② 按需加载', 'h')
   await clickNav('AI 问答')

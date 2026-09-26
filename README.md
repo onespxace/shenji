@@ -136,8 +136,12 @@ API Key 使用 Electron `safeStorage` 保存。研究助手只用于资料整理
 
 | 页面 | 地址 |
 | --- | --- |
-| 工作台 | `https://onespxace.github.io/shenji/` |
+| 落地页（首页） | `https://onespxace.github.io/shenji/` |
+| 工作台 | 落地页点「进入工作台」，或直接 `#/analysis` |
 | 功能介绍 PPT | `https://onespxace.github.io/shenji/deck.html` |
+
+打开站点先进落地页：一句话定位 + 7 个模块入口，点「进入工作台」或任意模块卡片才进工具界面；
+工作台里点左上角徽标可回到落地页。
 
 功能 PPT 共 14 页，支持键盘翻页、总览模式与全屏演示；应用内「使用教程与用例」页
 提供上手步骤与 10 个可一键运行的审计用例。

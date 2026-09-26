@@ -38,7 +38,16 @@ const H = Number(params.get('h') || 800)
 // 构建的 CSS 哈希，于是「改了样式却量到旧数值」。这个坑很隐蔽：数据自洽、不报错，
 // 只是完全不反映刚改的代码。
 const CB = params.get('cb') || ''
-const APP_SRC = (params.get('app') || '/probe-index.html') + (CB ? `?cb=${CB}` : '')
+/**
+ * 被测路由，默认 #/analysis（工作台外壳）。
+ *
+ * 为什么必须显式带路由：默认视图现在是**落地页**，而落地页是 standalone 的——
+ * 没有顶栏、没有导航、没有底部标签栏。不带 hash 就会量到一个"什么都没有"的页面，
+ * 于是所有布局断言都会以"导航不存在"的形式失败，看起来像布局坏了。
+ * 用 ?route=#/home 可以改测落地页本身。
+ */
+const ROUTE = params.get('route') || '#/analysis'
+const APP_SRC = (params.get('app') || '/probe-index.html') + (CB ? `?cb=${CB}` : '') + ROUTE
 
 const row = document.getElementById('row')
 const box = document.createElement('div')
@@ -74,6 +83,9 @@ function measure(size) {
   return {
     size,
     vw: size.w,
+    // 落地页与工作台是两种页面形态：落地页没有外壳，用 landing/cardCount 判定
+    landing: !!d.querySelector('.landing-title'),
+    cardCount: d.querySelectorAll('.module-card').length,
     // 诊断：区分「iframe 没加载好」与「加载了但导航不在」——两者结论完全不同
     state: d.readyState === 'complete' ? (nav ? 'ready' : 'loaded-no-nav') : 'loading',
     navPresent: !!nav,
@@ -136,7 +148,9 @@ window.__ready = new Promise((resolve) => {
   const timer = setInterval(() => {
     n += 1
     const d = frame.contentDocument
-    if ((d && d.readyState === 'complete' && d.querySelector('.top-nav')) || n > 60) {
+    // 工作台路由等 .top-nav，落地页等 .landing-title——两者都是"页面已挂载"的判据
+    const mounted = d && d.readyState === 'complete' && (d.querySelector('.top-nav') || d.querySelector('.landing-title'))
+    if (mounted || n > 60) {
       clearInterval(timer)
       resolve(n <= 60)
     }

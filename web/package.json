@@ -30,6 +30,7 @@
     "probe:layout": "npm run probe:prepare && node scripts/browser-probe.mjs --scenario scripts/scenarios/layout-audit.json",
     "probe:lazy": "npm run probe:prepare && node scripts/browser-probe.mjs --scenario scripts/scenarios/lazy-audit.json",
     "probe:lazy-failure": "node scripts/browser-probe.mjs --scenario scripts/scenarios/lazy-failure.json",
+    "probe:shots": "node scripts/browser-probe.mjs --scenario scripts/scenarios/landing-shots.json",
     "probe:router": "npm run probe:prepare && node scripts/run-html-probe.mjs --url http://localhost:4288/router-audit.html",
     "probe:all": "npm run probe:browser && npm run probe:layout && npm run probe:lazy && npm run probe:lazy-failure && npm run probe:router",
     "probe:browser": "node scripts/browser-probe.mjs",

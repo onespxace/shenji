@@ -1,0 +1,31 @@
+{
+  "settleMs": 3000,
+  "views": [
+    {
+      "name": "落地页 · 桌面 1440",
+      "route": "#/home",
+      "viewport": { "width": 1440, "height": 1000 },
+      "expect": "!!document.querySelector('.landing-title')",
+      "steps": [
+        {
+          "label": "桌面 1440 落地页",
+          "shot": ".probe-shots/landing-1440.png",
+          "run": "const doc=document.documentElement; const cards=document.querySelectorAll('.module-card').length; const facts=document.querySelectorAll('.landing-facts li').length; return { ok: cards===7 && facts===3 && doc.scrollWidth<=doc.clientWidth+1, detail: 'cards='+cards+' facts='+facts+' scrollW='+doc.scrollWidth+' clientW='+doc.clientWidth }"
+        }
+      ]
+    },
+    {
+      "name": "落地页 · 手机 390",
+      "route": "#/home",
+      "viewport": { "width": 390, "height": 900, "mobile": true },
+      "expect": "!!document.querySelector('.landing-title')",
+      "steps": [
+        {
+          "label": "手机 390 落地页",
+          "shot": ".probe-shots/landing-390.png",
+          "run": "const doc=document.documentElement; const cards=document.querySelectorAll('.module-card').length; return { ok: cards===7 && doc.scrollWidth<=doc.clientWidth+1, detail: 'cards='+cards+' scrollW='+doc.scrollWidth+' clientW='+doc.clientWidth }"
+        }
+      ]
+    }
+  ]
+}

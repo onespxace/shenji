@@ -191,9 +191,11 @@ function gotoCases() {
           <div class="cases-bar">
             <div class="cases-filters">
               <el-radio-group v-model="filter" size="small">
-                <el-radio-button label="all">全部 {{ SHOWCASE_CASES.length }}</el-radio-button>
-                <el-radio-button label="tool">审计程序 {{ toolCount }}</el-radio-button>
-                <el-radio-button label="knowledge">会计与凭证 {{ knowledgeCount }}</el-radio-button>
+                <!-- 用 value 而不是 label 传值：Element Plus 2.14 起 label 作为值已标记废弃，
+                     控制台会打印 ElementPlusError 警告——噪声会盖住真正的问题。 -->
+                <el-radio-button value="all">全部 {{ SHOWCASE_CASES.length }}</el-radio-button>
+                <el-radio-button value="tool">审计程序 {{ toolCount }}</el-radio-button>
+                <el-radio-button value="knowledge">会计与凭证 {{ knowledgeCount }}</el-radio-button>
               </el-radio-group>
             </div>
             <el-tag :type="allPassed ? 'success' : 'danger'" effect="light" size="small">

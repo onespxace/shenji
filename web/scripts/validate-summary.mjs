@@ -90,6 +90,7 @@ if (inline) console.log('注意：当前环境不允许起子进程（spawnSync 
 let total = 0
 let groups = 0
 let failed = 0
+let skipped = 0
 const rows = []
 
 for (const [script, label] of SCRIPTS) {
@@ -99,17 +100,40 @@ for (const [script, label] of SCRIPTS) {
   const pass = match ? Number(match[1]) : 0
   const all = match ? Number(match[2]) : 0
   const ok = run.status === 0 && pass === all && all > 0
+  // 有的脚本会因为"环境跑不了"而跳过几条（例如模型资产的 git 校验在禁止起子进程时）。
+  // 这类跳过会改变断言总数——**必须在汇总里说出来**，否则同一个仓库会给出两个不同的
+  // 总数（实测：受限环境 671、能起子进程 673），接手的人会以为是回归。
+  const skipMatch = run.text.match(/其中\s*(\d+)\s*条[^\n]*跳过/)
+  const rowSkipped = skipMatch ? Number(skipMatch[1]) : 0
+  skipped += rowSkipped
   if (!ok) failed += 1
   total += all
   groups += 1
-  rows.push({ script, label, pass, all, ok, note: ok ? '' : summary ? summary.trim() : `退出码 ${run.status}` })
+  rows.push({
+    script,
+    label,
+    pass,
+    all,
+    ok,
+    skipped: rowSkipped,
+    note: ok ? '' : summary ? summary.trim() : `退出码 ${run.status}`
+  })
 }
 
 console.log('| 校验脚本 | 覆盖内容 | 断言数 | 结果 |')
 console.log('| --- | --- | --- | --- |')
 for (const row of rows) {
-  console.log(`| \`npm run ${row.script}\` | ${row.label} | ${row.all} | ${row.ok ? '通过' : '**失败** ' + row.note} |`)
+  const note = row.ok ? (row.skipped ? `通过（其中 ${row.skipped} 条环境跳过）` : '通过') : `**失败** ${row.note}`
+  console.log(`| \`npm run ${row.script}\` | ${row.label} | ${row.all} | ${note} |`)
 }
 console.log('')
 console.log(`合计 **${total}** 条断言 / **${groups}** 组；失败 ${failed} 组。${inline ? '（同进程模式）' : ''}`)
+if (skipped) {
+  console.log(`注：其中 **${skipped}** 条因当前环境不支持起子进程而跳过（SKIP ≠ PASS）。`)
+  // 刻意不给"差几条"的具体数字：跳过是"一条顶掉若干条"（模型资产的 git 校验
+  // 每个模型有 2 条断言，起不了子进程时合并成 1 条 SKIP），
+  // 用 skipped 直接当差值会算错。宁可说清事实，也不要给一个看起来精确的错数。
+  console.log('    这些断言在能起子进程的环境里会真的执行，因此断言总数会随环境略高；')
+  console.log('    两个总数都正确，差别来自环境，不是回归。')
+}
 process.exit(failed ? 1 : 0)

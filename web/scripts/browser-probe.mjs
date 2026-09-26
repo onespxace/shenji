@@ -26,6 +26,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
+const webRoot = path.resolve(here, '..')
 
 const args = process.argv.slice(2)
 const getArg = (name, fallback) => {
@@ -244,6 +245,17 @@ async function main() {
         else consoleWarnings.push(line)
       })
 
+      // 视口覆盖：默认页签是 800×600，量布局/截图时必须先固定视口，
+      // 否则"看起来对"其实是在一个和用户无关的宽度上看的。
+      if (view.viewport) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width: view.viewport.width,
+          height: view.viewport.height || 900,
+          deviceScaleFactor: view.viewport.deviceScaleFactor || 1,
+          mobile: view.viewport.mobile === true
+        }).catch((error) => console.log(`  （视口覆盖失败：${error.message}）`))
+      }
+
       // 视图级 CDP 指令：用来在页面加载前布好网（如 Network.enable）。
       // 场景里写 {"method": "...", "params": {...}}，比给每种需求加一个专用开关更耐用。
       for (const command of view.cdp || []) {
@@ -322,6 +334,25 @@ async function main() {
             outcome = problems.length
               ? { ok: false, detail: problems.join('；') }
               : { ok: true, detail: `${path.basename(file)} ${raw.length}B / ${lines.length} 行` }
+          }
+        }
+
+        // 截图类步骤：把当屏（可含超出视口的部分）存成 PNG，供人眼复核排版。
+        // 断言能证明"元素存在"，证明不了"好不好看"——设计相关的改动要看得见。
+        if (step.shot) {
+          const shot = await cdp.send('Page.captureScreenshot', {
+            format: 'png',
+            captureBeyondViewport: step.shotFull !== false
+          }).catch((error) => ({ error }))
+          if (shot?.data) {
+            const target = path.isAbsolute(step.shot) ? step.shot : path.join(webRoot, step.shot)
+            fs.mkdirSync(path.dirname(target), { recursive: true })
+            fs.writeFileSync(target, Buffer.from(shot.data, 'base64'))
+            // 严格沿用原来的 ok：截图不能让失败变成通过。
+            // 写成 `ok !== false` 会把"没返回 ok"也算通过——恒真断言的翻版。
+            outcome = { ok: outcome?.ok === true, detail: `${outcome?.detail || ''} → 截图 ${path.relative(webRoot, target)}` }
+          } else {
+            outcome = { ok: false, detail: '截图失败' }
           }
         }
 

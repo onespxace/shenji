@@ -575,3 +575,44 @@ npx electron-builder --win portable --x64 --config.compression=store
 
 - `npm run probe:all` = **85 条浏览器断言，0 失败**（交互 29 + 前置检查 25 + 布局 11 +
   懒加载 11 + 失败兜底 4 + 路由 15）；静态断言仍为 **664 条 / 11 组，0 失败**。
+
+## 2.2 第十一批：两级入口（落地页 → 工作台）
+
+用户要求「设计一个主页，进去就是，再点才是现在的工具界面」。完整记录见
+`docs/HANDOVER.md` §12。
+
+### 做法
+
+- 路由表新增 `home`，`DEFAULT_VIEW` 从 `analysis` 改为 `home`。
+- 新增路由字段 **`standalone: true`**：带此标记的视图不带工作台外壳，由 App 整屏渲染；
+  `navItems` 自动过滤 standalone——**黑名单写在路由表里，不在 App 里再维护一份**。
+- 新增 `HomeView.vue`（eager）：定位一句话 + 3 条设计原则 + 7 个模块卡片 + 页脚。
+- 回落地页三个入口：左上角徽标、顶栏首页按钮、手机端「更多」→「返回首页」。
+
+### 顺带发现并修掉的三个坑
+
+1. **布局探针会量到"什么都没有"的页面**：它原来不带 hash、靠默认视图，默认变成落地页后
+   没有 `.top-nav`，所有布局断言都以"导航不存在"失败，看起来像布局坏了。
+   现在探针有显式 `route`（默认 `#/analysis`），并支持 `?route=%23/home` 测落地页。
+2. **`__ready` 判据要随页面形态走**：原来只等 `.top-nav`，落地页永远等不到；
+   现在「`.top-nav` 或 `.landing-title`」有其一即算挂载。
+3. **`expect` 在探针页上下文求值，不在 iframe 里**：给落地页视口写
+   `!!document.querySelector('.landing-title')` 永远是 false（那个元素在 iframe 内）。
+   探针页的 `expect` 只能断言探针页自己的东西。
+
+另外修掉探针里一处**恒真写法**：截图步骤把 `ok` 写成 `outcome?.ok !== false`，
+会把"没返回 ok"也算通过；已改为严格 `=== true`。
+
+### 新增能力：截图复核
+
+探针支持 `view.viewport`（`Emulation.setDeviceMetricsOverride`）与步骤级 `shot`
+（`Page.captureScreenshot`）。`npm run probe:shots` 生成 `.probe-shots/landing-1440.png`
+与 `landing-390.png`。**断言能证明"元素存在"，证明不了"好不好看"**——
+落地页排版（1440 三栏事实区、7 张卡片排成 3+3+1、390 收成单列）是逐张看图确认的。
+`.probe-shots/` 已 gitignore。
+
+### 现状
+
+- 静态断言 **671 条 / 11 组，0 失败**（路由 35 → 42）。
+- 浏览器行为 **105 条，0 失败**：probe:browser 47、probe:layout 30（含 4 个落地页视口）、
+  probe:lazy 2（内部 14）、probe:lazy-failure 5、probe:router 21。

@@ -38,6 +38,9 @@ backups/**/*.zip
 # 用 `node web/scripts/bench-ocr.mjs --make-images` 重新生成，不入库。
 web/.bench-ocr/
 
+# 探针截图（设计复核用，`npm run probe:shots` 生成，随时可重跑）
+web/.probe-shots/
+
 # 浏览器端真机验证用的临时图片
 web/public/_t/
 web/public/A-scan.png

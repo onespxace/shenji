@@ -10,7 +10,7 @@
 // 没有服务端 rewrite，history 模式直接刷新会 404。hash 模式零配置可用。
 //
 // 约定：
-//   #/analysis #/accounting #/documents #/knowledge #/chat #/tutorial #/settings
+//   #/home #/analysis #/accounting #/documents #/knowledge #/chat #/tutorial #/settings
 //
 // 三条硬要求（对应验收标准）：
 //   1. 刷新后保留当前页面 —— 启动时解析 location.hash
@@ -19,7 +19,14 @@
 
 import { readonly, ref } from 'vue'
 
-export const DEFAULT_VIEW = 'analysis'
+/**
+ * 默认视图 = 落地页。
+ *
+ * `standalone: true` 的视图**不带工作台外壳**（顶栏 / 底部标签栏 / 页面头），
+ * 由 App.vue 直接整屏渲染。落地页进去就是它，点按钮才进工作台。
+ * 导航列表会自动过滤掉 standalone 的视图，不需要在别处再维护一份黑名单。
+ */
+export const DEFAULT_VIEW = 'home'
 
 /**
  * 路由表：全站唯一的视图事实源。
@@ -27,6 +34,13 @@ export const DEFAULT_VIEW = 'analysis'
  * meta.crumb / meta.eyebrow / meta.title 供页面头部使用。
  */
 export const ROUTES = {
+  home: {
+    id: 'home',
+    label: '首页',
+    group: '入口',
+    standalone: true,
+    meta: { eyebrow: 'Audit workbench', title: '审计工作台' }
+  },
   analysis: {
     id: 'analysis',
     label: '数据分析',

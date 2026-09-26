@@ -69,18 +69,38 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const state = () => ({
   hash: w().location.hash,
   title: d().querySelector('.page-title')?.textContent.trim() || '',
-  crumb: d().querySelector('.page-crumb')?.textContent.trim() || ''
+  crumb: d().querySelector('.page-crumb')?.textContent.trim() || '',
+  landing: d().querySelector('.landing-title')?.textContent.trim() || '',
+  hasShell: !!d().querySelector('.app-shell'),
+  hasTopNav: !!d().querySelector('.top-nav-item')
 })
+
+/** 从落地页进入工作台。落地页没有顶栏导航，所有导航相关断言都要先过这一步。 */
+const enterWorkspace = async () => {
+  const btn = [...d().querySelectorAll('button')].find((b) => b.textContent.includes('进入工作台'))
+  if (!btn) throw new Error('落地页上找不到「进入工作台」按钮')
+  btn.click()
+  await waitFor(() => w().location.hash === '#/analysis' && d().querySelector('.page-title'), 8000)
+  await sleep(300)
+  return state()
+}
 
 try {
   await frameLoaded
-  await waitFor(() => d() && d().querySelector('.top-nav-item'))
-  log('① 初始加载与 hash 归一化', 'h')
+  await waitFor(() => d() && (d().querySelector('.landing-title') || d().querySelector('.top-nav-item')))
+  log('① 落地页（进去就是它）', 'h')
 
   const s0 = state()
-  check('初始 hash 已归一化到默认视图', s0.hash === '#/analysis', s0.hash)
-  check('首屏标题与路由一致', s0.title === '数据分析', s0.title)
-  check('crumb 已渲染（此前从未显示）', s0.crumb.includes('/'), s0.crumb)
+  check('初始 hash 已归一化到落地页', s0.hash === '#/home', s0.hash)
+  check('首屏渲染的是落地页', s0.landing === '审计工作台', s0.landing)
+  check('落地页不带工作台外壳（没有顶栏导航）', !s0.hasShell && !s0.hasTopNav, `shell=${s0.hasShell} nav=${s0.hasTopNav}`)
+  check('落地页有进入工作台的入口', [...d().querySelectorAll('button')].some((b) => b.textContent.includes('进入工作台')), '未找到入口按钮')
+
+  log('①b 从落地页进入工作台', 'h')
+  const entered = await enterWorkspace()
+  check('点入口后切到 #/analysis', entered.hash === '#/analysis', entered.hash)
+  check('进入后出现工作台外壳与顶栏导航', entered.hasShell && entered.hasTopNav, `shell=${entered.hasShell} nav=${entered.hasTopNav}`)
+  check('工作台页面头（crumb/title）已渲染', entered.crumb.includes('/') && entered.title === '数据分析', `${entered.crumb}|${entered.title}`)
 
   log('② 点击导航切视图', 'h')
   /**
@@ -184,6 +204,20 @@ try {
   const after = state()
   check('刷新后仍是同一视图', after.hash === before.hash && after.title === before.title, `${before.hash} -> ${after.hash}`)
   check('刷新后 crumb 仍在', after.crumb.length > 0, after.crumb)
+
+  log('⑧ 从工作台回落地页', 'h')
+  // 徽标点击是网页惯例的"回首页"，这里把它变成断言而不是只写在文档里
+  const brand = d().querySelector('.brand-button')
+  if (!brand) {
+    check('点左上角徽标能回到落地页', false, '找不到徽标按钮')
+  } else {
+    brand.click()
+    const backHome = await waitFor(() => w().location.hash === '#/home', 6000).then(() => true).catch(() => false)
+    const landingBack = await waitFor(() => d().querySelector('.landing-title'), 6000).then(() => true).catch(() => false)
+    check('点左上角徽标能回到落地页', backHome && landingBack, `hash=${w().location.hash} 落地页=${landingBack}`)
+    // 回到落地页后不应再有工作台外壳，否则等于"两个页面叠在一起"
+    check('回到落地页后工作台外壳已移除', !d().querySelector('.app-shell'), '外壳仍在')
+  }
 
   const passed = results.filter((r) => r.ok).length
   log('', 'h')

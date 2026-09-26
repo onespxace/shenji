@@ -2,6 +2,33 @@
   "settleMs": 2600,
   "views": [
     {
+      "name": "入口 · 落地页",
+      "route": "#/home",
+      "expect": "!!document.querySelector('.landing-title')",
+      "steps": [
+        {
+          "label": "首屏就是落地页，且不带工作台外壳",
+          "run": "const t=document.querySelector('.landing-title'); const shell=!!document.querySelector('.app-shell'); const nav=!!document.querySelector('.top-nav-item'); const tab=!!document.querySelector('.app-tabbar'); return { ok: !!t && t.textContent.trim()==='审计工作台' && !shell && !nav && !tab, detail: 'title='+(t?t.textContent.trim():'')+' shell='+shell+' nav='+nav+' tabbar='+tab }"
+        },
+        {
+          "label": "点「进入工作台」切到 #/analysis 并出现外壳",
+          "run": "const b=[...document.querySelectorAll('button')].find(x=>x.textContent.includes('进入工作台')); if(!b) return {ok:false,detail:'没有进入工作台按钮'}; b.click(); await new Promise(r=>setTimeout(r,1000)); const shell=!!document.querySelector('.app-shell'); const nav=!!document.querySelector('.top-nav-item'); return { ok: location.hash==='#/analysis' && shell && nav && !document.querySelector('.landing-title'), detail: 'hash='+location.hash+' shell='+shell+' nav='+nav }"
+        },
+        {
+          "label": "工作台里点徽标能回到落地页",
+          "run": "const b=document.querySelector('.brand-button'); if(!b) return {ok:false,detail:'没有徽标按钮'}; b.click(); await new Promise(r=>setTimeout(r,1000)); return { ok: location.hash==='#/home' && !!document.querySelector('.landing-title') && !document.querySelector('.app-shell'), detail: 'hash='+location.hash }"
+        },
+        {
+          "label": "7 个模块卡片分别指向正确的视图",
+          "run": "const want=[['数据分析','#/analysis'],['会计基础','#/accounting'],['底稿文书','#/documents'],['法规速查','#/knowledge'],['AI 问答','#/chat'],['使用教程','#/tutorial'],['设置','#/settings']]; const bad=[]; for(const pair of want){ location.hash='#/home'; await new Promise(r=>setTimeout(r,700)); const card=[...document.querySelectorAll('.module-card')].find(c=>((c.querySelector('.module-head strong')||{}).textContent||'').trim()===pair[0]); if(!card){ bad.push(pair[0]+':卡片缺失'); continue } card.click(); await new Promise(r=>setTimeout(r,900)); if(location.hash!==pair[1]) bad.push(pair[0]+':'+location.hash+'≠'+pair[1]) } location.hash='#/home'; await new Promise(r=>setTimeout(r,600)); return { ok: bad.length===0, detail: bad.join('；')||'7/7 全部正确' }"
+        },
+        {
+          "label": "落地页在窄屏也没有横向滚动",
+          "run": "const doc=document.documentElement; const cards=document.querySelectorAll('.module-card').length; return { ok: cards===7 && doc.scrollWidth<=doc.clientWidth+1, detail: 'cards='+cards+' scrollW='+doc.scrollWidth+' clientW='+doc.clientWidth }"
+        }
+      ]
+    },
+    {
       "name": "工作台 · 数据分析",
       "route": "#/analysis",
       "steps": [

@@ -12,9 +12,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { buildProbeEntry } from './lib/probe-entry.mjs'
 
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const dist = path.join(webRoot, 'dist')
+const probeEntry = path.join(dist, 'probe-index.html')
 
 /** 探针页 → 用于确认拷贝成功的特征串（防止拷了个空文件还当成功） */
 const PAGES = [
@@ -31,14 +33,14 @@ if (!fs.existsSync(path.join(dist, 'index.html'))) {
   process.exit(1)
 }
 
-// probe-index.html 由 make-probe-entry.mjs 生成；没生成过就顺手生成
-const probeEntry = path.join(dist, 'probe-index.html')
-if (!fs.existsSync(probeEntry)) {
-  const { spawnSync } = await import('node:child_process')
-  const result = spawnSync(process.execPath, ['scripts/make-probe-entry.mjs'], { cwd: webRoot, encoding: 'utf8' })
-  process.stdout.write(result.stdout || '')
-  if (result.status !== 0) process.stderr.write(result.stderr || '')
-}
+// probe-index.html 由 buildProbeEntry 现算现写。
+// **不要**在这里用 spawnSync 去调 make-probe-entry.mjs：受限环境起不了子进程，
+// 那一步会静默失败，最后表现成"probe-index.html 没有出现在 dist/"，
+// 让人以为是拷贝逻辑坏了。函数就在手边，直接调用。
+const probeSource = path.join(dist, 'index.html')
+const { html: probeHtml, removed } = buildProbeEntry(fs.readFileSync(probeSource, 'utf8'))
+fs.writeFileSync(probeEntry, probeHtml, 'utf8')
+console.log(`已生成 dist/probe-index.html（移除 ${removed} 条 modulepreload 提示）`)
 
 const problems = []
 for (const page of PAGES) {

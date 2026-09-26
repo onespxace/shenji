@@ -11,10 +11,12 @@ import {
   QuestionFilled,
   CircleCheckFilled,
   Grid,
+  HomeFilled,
   MoreFilled,
   Reading
 } from '@element-plus/icons-vue'
 import AnalysisView from './views/AnalysisView.vue'
+import HomeView from './views/HomeView.vue'
 import ViewLoading from './components/ViewLoading.vue'
 import emblemUrl from './assets/brand/emblem-128.png'
 import { ROUTES, currentRoute, currentView, navigate as routerNavigate, startRouter } from './lib/router'
@@ -36,7 +38,10 @@ const NAV_ICONS = {
   tutorial: Reading,
   settings: Setting
 }
-const navItems = Object.values(ROUTES).map((route) => ({ id: route.id, label: route.label, group: route.group, icon: NAV_ICONS[route.id] }))
+// 导航列表自动排除 standalone 视图（落地页）——黑名单写在路由表里，不在这里再维护一份
+const navItems = Object.values(ROUTES)
+  .filter((route) => !route.standalone)
+  .map((route) => ({ id: route.id, label: route.label, group: route.group, icon: NAV_ICONS[route.id] }))
 
 /**
  * 桌面端导航分两层，并且「放几项」是量出来的，不是猜出来的。
@@ -257,6 +262,13 @@ const lazyView = (name, loader) => defineComponent({
   }
 })
 
+/**
+ * 落地页（standalone 路由）不带工作台外壳，由模板直接整屏渲染。
+ * 放在这里而不是塞进 VIEW_COMPONENTS：它没有 KeepAlive 的意义（无状态），
+ * 也不该出现在顶栏/底部标签栏的 active 判断里。
+ */
+const isLanding = computed(() => currentRoute().standalone === true)
+
 const VIEW_COMPONENTS = {
   analysis: AnalysisView,
   accounting: lazyView('AccountingView', () => import('./views/AccountingView.vue')),
@@ -266,7 +278,8 @@ const VIEW_COMPONENTS = {
   tutorial: lazyView('TutorialView', () => import('./views/TutorialView.vue')),
   settings: lazyView('SettingsView', () => import('./views/SettingsView.vue'))
 }
-const activeComponent = computed(() => VIEW_COMPONENTS[activeView.value] || AnalysisView)
+// 落地页不在外壳里渲染，这里返回 null 而不是让它退化成 AnalysisView
+const activeComponent = computed(() => (isLanding.value ? null : VIEW_COMPONENTS[activeView.value] || AnalysisView))
 
 // 视图切换统一在这里滚回顶部。放在 watch 里而不是 navigate 里，
 // 是为了同时覆盖程序化跳转和浏览器前进/后退。
@@ -299,14 +312,20 @@ watchNavFit()
 </script>
 
 <template>
-  <div class="app-shell">
+  <!--
+    落地页：进去就是它，不带工作台外壳。
+    点「进入工作台」或任意模块卡片才进工具界面（hash 变成 #/analysis 等）。
+  -->
+  <HomeView v-if="isLanding" />
+
+  <div v-else class="app-shell">
     <div class="ambient ambient-one"></div>
     <div class="ambient ambient-two"></div>
     <div class="ambient ambient-three"></div>
 
     <header class="app-topbar">
       <div class="topbar-inner">
-        <button class="brand-button" type="button" title="返回数据分析" @click="navigate('analysis')">
+        <button class="brand-button" type="button" title="返回首页" @click="navigate('home')">
           <span class="brand-mark"><img :src="emblemUrl" alt="郑州工商学院审计学本科2501班徽标" width="44" height="44" /></span>
           <span class="brand-copy">
             <span class="brand-name">审计工作台</span>
@@ -354,6 +373,9 @@ watchNavFit()
 
         <div class="topbar-actions">
           <div class="workspace-status"><span class="status-dot"></span><span>本地工作区</span></div>
+          <el-button class="help-button" text circle aria-label="返回首页" title="返回首页" @click="navigate('home')">
+            <el-icon><HomeFilled /></el-icon>
+          </el-button>
           <el-button class="help-button" text circle aria-label="使用说明" title="使用说明" @click="guideVisible = true">
             <el-icon><QuestionFilled /></el-icon>
           </el-button>
@@ -422,6 +444,10 @@ watchNavFit()
       <div class="more-sheet-inner">
         <div class="more-sheet-grip"></div>
         <div class="more-sheet-list">
+          <button type="button" class="more-sheet-item" @click="moreVisible = false; navigate('home')">
+            <span class="more-sheet-icon"><el-icon><HomeFilled /></el-icon></span>
+            <span class="more-sheet-copy"><strong>返回首页</strong><em>回到入口页选择模块</em></span>
+          </button>
           <button v-for="item in moreItems" :key="item.id" type="button" class="more-sheet-item" @click="navigate(item.id)">
             <span class="more-sheet-icon"><el-icon><component :is="item.icon" /></el-icon></span>
             <span class="more-sheet-copy"><strong>{{ item.label }}</strong><em>{{ item.desc }}</em></span>
