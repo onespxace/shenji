@@ -23,6 +23,7 @@ web/public/ocr/*
 
 # 日志与临时文件
 *.log
+*.err
 npm-debug.log*
 .DS_Store
 Thumbs.db
@@ -41,3 +42,7 @@ web/.bench-ocr/
 web/public/_t/
 web/public/A-scan.png
 web/public/D-photo.png
+
+# 助手的工作记忆（项目上下文与每日进展）。
+# 属于本地协作产物、不是仓库内容，故不入库；需要共享时另行整理进 docs/。
+.workbuddy/

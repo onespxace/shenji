@@ -4,24 +4,35 @@ import process from 'node:process'
 import {
   PROFIT_EXAMPLE,
   PROFIT_EXAMPLE_EXPECTED,
+  PROFIT_EXPORT_HEADERS,
   PROFIT_FORMULAS,
   PROFIT_INPUTS,
+  buildProfitExport,
   checkAccountingEquations,
   computeProfitChain,
   formatMoney,
+  labelOfNode,
   parseProfitInputs,
   roundMoney
 } from '../src/lib/profit-calculator.js'
 import {
   ACCOUNT_SUBACCOUNTS,
+  ENTRY_EXPORT_HEADERS,
   JOURNAL_ENTRY_RULES,
   JOURNAL_GROUPS,
   allRuleAccountCodes,
   buildEntry,
+  buildEntryExport,
   checkBalanced,
+  entryShape,
+  extractAmount,
+  isAmbiguous,
   matchJournalRules,
+  parseAmount,
+  recommendedPicks,
   validateRuleIntegrity
 } from '../src/lib/journal-entries.js'
+import { moneyCell, toCsv } from '../src/lib/csv-export.js'
 import { ACCOUNT_ENTRIES } from '../src/lib/accounting-data.js'
 
 const results = []
@@ -51,7 +62,16 @@ check('公式依赖无环', (() => {
 // 缺依赖时必须报 incomplete，不能算出一个假结果
 const partial = computeProfitChain({ mainRevenue: '100', mainCost: '40' })
 check('缺依赖时不输出数值', partial.steps.find((s) => s.id === 'mainProfit').status === 'incomplete', partial.steps.find((s) => s.id === 'mainProfit').status)
-check('缺依赖时列出缺哪几项', partial.steps.find((s) => s.id === 'mainProfit').missing.join(',') === 'mainTax', partial.steps.find((s) => s.id === 'mainProfit').missing.join(','))
+// 缺项提示必须落到底层输入项的中文名上：
+// 上一版吐的是内部 id（界面显示"缺：mainTax"），用户看不懂也没法照着填
+check('缺依赖时列出中文输入项名', partial.steps.find((s) => s.id === 'mainProfit').missing.join(',') === '主营业务税金及附加', partial.steps.find((s) => s.id === 'mainProfit').missing.join(','))
+check('缺依赖时同时保留内部 id 便于排查', partial.steps.find((s) => s.id === 'mainProfit').missingIds.join(',') === 'mainTax')
+// 上游公式缺失时要顺藤摸瓜落到能填的底层输入项，而不是只报"缺主营业务利润"
+const upstream = computeProfitChain({ mainRevenue: '100', mainCost: '40', otherRevenue: '1', otherCost: '1', otherTax: '1', periodExpense: '1' })
+check('上游公式缺失时给出可填的底层输入项', upstream.steps.find((s) => s.id === 'operatingProfit').missing.includes('主营业务税金及附加'), upstream.steps.find((s) => s.id === 'operatingProfit').missing.join(','))
+check('缺项计数只数底层输入项，不重复累加下游公式', computeProfitChain({}).missingCount === PROFIT_INPUTS.length, String(computeProfitChain({}).missingCount))
+check('缺项计数在部分填写时递减', computeProfitChain({ mainRevenue: '100' }).missingCount === PROFIT_INPUTS.length - 1, String(computeProfitChain({ mainRevenue: '100' }).missingCount))
+check('缺项清单与未填项一致', computeProfitChain({}).missingInputs.length === PROFIT_INPUTS.length)
 check('全空输入不抛错', (() => { try { computeProfitChain({}); return true } catch { return false } })())
 check('全空输入 complete 为 false', computeProfitChain({}).complete === false)
 check('非数字输入被忽略', parseProfitInputs({ mainRevenue: 'abc' }).filled.size === 0, JSON.stringify(parseProfitInputs({ mainRevenue: 'abc' })))
@@ -130,7 +150,7 @@ check('多行对单行时不谎称已配平', entryMulti.balanced !== true, Stri
 // 未填金额时只给方向
 const noAmount = buildEntry(rule1to1, {})
 check('未填金额时只给方向', noAmount.balanced === null && noAmount.lines.every((l) => l.amount === null), JSON.stringify(noAmount.lines.map((l) => l.amount)))
-check('未填金额时提示复式记账要求', noAmount.message.includes('借贷相等'), noAmount.message)
+check('未填金额时提示复式记账要求', noAmount.message.includes('借贷必相等'), noAmount.message)
 
 // 勾选功能：用户只取两行
 const picked = buildEntry(ruleMulti, { amount: 1000, picks: ['1002|', '2221|应交增值税：销项税额'] })
@@ -184,6 +204,119 @@ check('互斥组引用的行都存在', (() => {
   return bad.length === 0
 })(), '有互斥组引用了不存在的行')
 check('每个互斥组至少两行', JOURNAL_ENTRY_RULES.every((r) => (r.altGroups || []).every((g) => g.keys.length >= 2)), '有互斥组只有一行')
+// 现金支出的三个借方（办公费/工资/预借差旅费）也是备查式，上一版漏标，
+// 界面会把三行全部预选，一填金额就报"借贷不等"
+check('现金支出已标注互斥组', (JOURNAL_ENTRY_RULES.find((r) => r.id === 'cash-expense').altGroups || []).length === 1)
+
+// ---------------- 匹配质量 ----------------
+// 上一版"收到货款"同时命中"确认销售收入"和"收回应收账款"且同分，谁标题靠前谁当选 = 随机结果
+const goodsPaid = matchJournalRules('收到货款')
+check('「收到货款」唯一命中收回应收账款', goodsPaid.length === 1 && goodsPaid[0].rule.id === 'ar-collect', goodsPaid.map((h) => h.rule.id + '(' + h.score + ')').join(','))
+check('「收到货款」不再被判为歧义', isAmbiguous(goodsPaid) === false)
+// 只输入科目名时确实无法判断是哪笔业务，必须报并列而不是替用户选
+const onlyAccount = matchJournalRules('原材料')
+check('只输入科目名时判定为并列', isAmbiguous(onlyAccount) === true, onlyAccount.map((h) => h.rule.id + '(' + h.score + ')').join(','))
+check('并列时不给任何一条打"推荐"标记', onlyAccount.every((h) => h.primary === false))
+// 快捷入口里的每一句都要能唯一落到一条规则上
+const QUICK_QUERIES = [
+  '收到股东投资款', '购买原材料', '计提应付职工薪酬', '计提坏账准备', '确认销售收入',
+  '结转销售成本', '收到货款', '偿还应付账款', '计算应缴增值税', '偿还长期借款',
+  '现金支付办公费用', '提取现金备用', '收到商业承兑汇票', '预付货款', '分配制造费用', '小规模纳税人开票'
+]
+const weak = QUICK_QUERIES.filter((q) => {
+  const hits = matchJournalRules(q)
+  return !hits.length || isAmbiguous(hits) || hits[0].score === 0
+})
+check('16 条快捷入口全部唯一命中', weak.length === 0, weak.join(','))
+const bad = QUICK_QUERIES.filter((q) => {
+  const hits = matchJournalRules(q)
+  return matchJournalRules(`${q}`).slice(0, 1).some((h) => !h.rule)
+})
+check('快捷入口命中结果都带规则对象', bad.length === 0, bad.join(','))
+
+// ---------------- 金额解析 ----------------
+check('解析纯数字', parseAmount('300000') === 300000)
+check('解析千分位', parseAmount('1,234,567.89') === 1234567.89)
+check('解析人民币符号与单位', parseAmount('￥300,000.00元') === 300000)
+check('解析空值为 null', parseAmount('') === null && parseAmount(null) === null)
+check('解析非法文本为 null', parseAmount('abc') === null)
+check('从描述提取阿拉伯数字金额', extractAmount('收到股东投资款 300000').amount === 300000)
+check('从描述提取「万」单位', extractAmount('收到投资款30万').amount === 300000)
+check('从描述提取「万元」小数', extractAmount('确认收入 1.5万元').amount === 15000)
+check('从描述提取带千分位金额', extractAmount('收到投资款￥300,000.00').amount === 300000)
+check('无金额描述返回 null', extractAmount('计提坏账准备').amount === null)
+check('百分数是税率不是金额', extractAmount('增值税税率25%').amount === null)
+check('编号不被当成金额', extractAmount('凭证号 001 的现金收入').amount === null)
+check('多个数字时取金额较大的那个', extractAmount('支付2024年房租 12000').amount === 12000)
+
+// ---------------- 分录新配平模型 ----------------
+const vatOutput = JOURNAL_ENTRY_RULES.find((r) => r.id === 'vat-output')
+check('分录形状：一对多被判为 split', entryShape(vatOutput).mode === 'split', JSON.stringify(entryShape(vatOutput)))
+check('分录形状：一对一被判为 single', entryShape(JOURNAL_ENTRY_RULES.find((r) => r.id === 'ar-collect')).mode === 'single')
+// 一行对多行必须能逐行填金额（上一版只支持"一个总额落一侧"，拆分场景根本填不平）
+const splitEntry = buildEntry(vatOutput, { amounts: { '1002|': '1130', '6001|': '1000', '2221|应交增值税：销项税额': '130' } })
+check('多行拆分后可以配平', splitEntry.balanced === true && splitEntry.balance.difference === 0, JSON.stringify(splitEntry.balance))
+check('多行拆分状态为 balanced', splitEntry.status === 'balanced', splitEntry.status)
+const notYet = buildEntry(vatOutput, { amounts: { '1002|': '1130' } })
+check('只填一侧时状态为 pending', notYet.status === 'pending', notYet.status)
+check('只填一侧时给出差额提示', notYet.hints.some((h) => h.includes('借贷不等')), JSON.stringify(notYet.hints))
+const emptyEntry = buildEntry(JOURNAL_ENTRY_RULES.find((r) => r.id === 'ar-collect'), {})
+check('未填金额时状态为 empty 而不是谎称已配平', emptyEntry.status === 'empty' && emptyEntry.balanced === null, String(emptyEntry.status))
+check('未填金额的提示里说明借贷必相等', emptyEntry.hints.some((h) => h.includes('借贷必相等')), JSON.stringify(emptyEntry.hints))
+// 推荐组合必须"一进页面就能用"：互斥组只取一行，直接改金额不会立刻报错
+const cashExpense = JOURNAL_ENTRY_RULES.find((r) => r.id === 'cash-expense')
+const cashPicks = recommendedPicks(cashExpense)
+check('推荐组合里互斥组只保留一行', cashPicks.filter((k) => k.startsWith('6602|') || k.startsWith('2211|') || k.startsWith('1221|')).length === 1, cashPicks.join(','))
+const cashEntry = buildEntry(cashExpense, { picks: cashPicks, amounts: { '6602|': '500', '1001|': '500' } })
+check('按推荐组合填金额即可配平', cashEntry.status === 'balanced' && cashEntry.balance.difference === 0, JSON.stringify(cashEntry.balance))
+check('推荐组合下没有互斥冲突', cashEntry.issues.length === 0, JSON.stringify(cashEntry.issues))
+// 传空 picks 表示"一行都没勾"，与"未传 picks（全部行）"必须区分
+const nonePicked = buildEntry(cashExpense, { picks: [] })
+check('传空 picks 表示一行都没勾', nonePicked.lines.length === 0, String(nonePicked.lines.length))
+check('不传 picks 时默认全部行', buildEntry(cashExpense, {}).lines.length === cashExpense.lines.length)
+
+// ---------------- 利润计算表导出 ----------------
+const exported = buildProfitExport(PROFIT_EXAMPLE, { elements: { assets: '1000', liabilities: '300', equity: '600' } })
+check('导出列定义与常量一致', JSON.stringify(exported.headers) === JSON.stringify(PROFIT_EXPORT_HEADERS))
+check('导出内容包含净利润结果行', exported.rows.some((r) => r[1] === '净利润' && r[3] === '1032300.00' && r[5] === '已计算'), JSON.stringify(exported.rows.find((r) => r[1] === '净利润')))
+check('导出内容包含全部 12 个输入项', exported.rows.filter((r) => r[0] === '输入项').length === PROFIT_INPUTS.length)
+check('导出内容包含全部 8 个计算步骤', exported.rows.filter((r) => r[0] === '计算').length === PROFIT_FORMULAS.length)
+check('导出内容包含两条恒等式校验', exported.rows.filter((r) => r[0] === '恒等式校验').length === 2)
+check('导出内容包含口径提示', exported.rows.some((r) => r[0] === '说明' && r[2].includes('投资净收益')))
+check('金额单元格不带千分位（Excel 才能求和）', exported.rows.every((r) => !String(r[3]).includes(',')), JSON.stringify(exported.rows.filter((r) => String(r[3]).includes(','))))
+check('导出金额都能被 Number 解析为数字或为空', exported.rows.every((r) => r[3] === '' || Number.isFinite(Number(r[3]))))
+check('所得税税率的单位标为 %', exported.rows.some((r) => r[1] === '所得税税率' && r[4] === '%'))
+// 未填项必须导出为空值，不能导出 0——导出表里出现看似精确的 0 比留空危险得多
+const partialExport = buildProfitExport({ mainRevenue: '100', mainCost: '40' })
+const mainTaxRow = partialExport.rows.find((r) => r[1] === '主营业务税金及附加')
+check('未填输入项导出为空值', mainTaxRow[3] === '' && mainTaxRow[5] === '未填', JSON.stringify(mainTaxRow))
+check('未填时净利润行标注待补数据', partialExport.rows.find((r) => r[1] === '净利润')[5] === '待补数据')
+check('未填时净利润行列出还需补什么', partialExport.rows.find((r) => r[1] === '净利润')[2].includes('还需补'))
+check('未填时导出仍标记为不完整', partialExport.complete === false && partialExport.missingCount === PROFIT_INPUTS.length - 2)
+check('亏损场景导出标注本期亏损', buildProfitExport({ ...PROFIT_EXAMPLE, mainCost: '9000000' }).rows.find((r) => r[1] === '净利润')[5].includes('亏损'))
+// 整份 CSV 能被解析回来，且金额列是数字
+const profitCsv = toCsv(exported.headers, exported.rows)
+check('导出的 CSV 带 BOM', profitCsv.charCodeAt(0) === 0xFEFF)
+check('导出的 CSV 行数 = 表头 + 数据行', profitCsv.split('\r\n').filter(Boolean).length === exported.rows.length + 1)
+check('导出的 CSV 里金额可以被当成数字求和', profitCsv.includes('1032300.00'))
+check('恒等式校验行带差额', exported.rows.find((r) => r[0] === '恒等式校验' && r[5] === '不平衡')[2].includes('差额'))
+
+// ---------------- 分录导出 ----------------
+const entryRule = JOURNAL_ENTRY_RULES.find((r) => r.id === 'ar-collect')
+const entryForExport = buildEntry(entryRule, { amount: 50000 })
+const entryPayload = buildEntryExport(entryRule, entryForExport)
+check('分录导出包含明细行 + 借/贷/差额合计', entryPayload.rows.length === entryForExport.lines.length + 3, String(entryPayload.rows.length))
+check('分录导出金额两位小数不带千分位', entryPayload.rows[0][6] === '50000.00', entryPayload.rows[0][6])
+check('分录导出标注借贷平衡', entryPayload.rows.at(-1)[7] === '借贷平衡', entryPayload.rows.at(-1)[7])
+check('分录导出方向用中文借贷', entryPayload.rows[0][2] === '借' && entryPayload.rows[1][2] === '贷')
+check('分录导出每行都带业务名（便于多张凭证拼表）', entryPayload.rows.every((r) => r[0] === entryRule.title), JSON.stringify(entryPayload.rows.map((r) => r[0])))
+check('分录导出列定义与表头一致', JSON.stringify(entryPayload.headers) === JSON.stringify(ENTRY_EXPORT_HEADERS))
+const unbalPayload = buildEntryExport(vatOutput, buildEntry(vatOutput, { amounts: { '1002|': '1130' } }))
+check('未配平的分录导出也如实标注', unbalPayload.rows.at(-1)[7] === '尚未配平', unbalPayload.rows.at(-1)[7])
+
+// 标签映射
+check('labelOfNode 对未知 id 原样返回', labelOfNode('__nope__') === '__nope__')
+check('labelOfNode 能翻译公式节点', labelOfNode('netProfit') === '净利润（利润）')
 
 for (const item of results) console.log(`${item.passed ? 'PASS' : 'FAIL'} ${item.name}${item.detail && !item.passed ? ` · ${item.detail}` : ''}`)
 const passed = results.filter((r) => r.passed).length

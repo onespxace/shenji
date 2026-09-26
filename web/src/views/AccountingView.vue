@@ -5,9 +5,11 @@ import {
   ChatDotRound,
   CircleCheckFilled,
   Collection,
+  CopyDocument,
   Cpu,
   Delete,
   DocumentChecked,
+  Download,
   EditPen,
   Files,
   InfoFilled,
@@ -20,8 +22,9 @@ import {
   WarningFilled
 } from '@element-plus/icons-vue'
 import { ACCOUNT_CLASSES, ACCOUNT_ENTRIES, ACCOUNTING_BASICS, answerAccountingQuestion, classifyAccount } from '../lib/accounting-data'
-import { ELEMENT_INPUTS, PROFIT_EXAMPLE, PROFIT_INPUTS, checkAccountingEquations, computeProfitChain, formatMoney } from '../lib/profit-calculator'
-import { JOURNAL_ENTRY_RULES, JOURNAL_GROUPS, buildEntry, checkBalanced, lineKey, matchJournalRules } from '../lib/journal-entries'
+import { ELEMENT_INPUTS, PROFIT_EXAMPLE, PROFIT_INPUTS, buildProfitExport, checkAccountingEquations, computeProfitChain, formatMoney, roundMoney } from '../lib/profit-calculator'
+import { JOURNAL_ENTRY_RULES, JOURNAL_GROUPS, buildEntry, buildEntryExport, entryShape, extractAmount, isAmbiguous, lineKey, matchJournalRules, parseAmount, recommendedPicks } from '../lib/journal-entries'
+import { downloadCsv, stamp, toCsv } from '../lib/csv-export'
 import { assessImage, recognizeVoucherImage, terminateOcr } from '../lib/ocr'
 import { processCredential, disposeAllEngines, ENGINE_IDS } from '../ocr/pipeline/credential-pipeline'
 import { RELIABILITY_BANDS } from '../ocr/confidence/reliability'
@@ -144,7 +147,6 @@ async function runStructuredOcr(force = false) {
 
 // ---------------- 利润计算器 ----------------
 const profitInputs = ref({ ...PROFIT_EXAMPLE })
-const showProfitExample = ref(true)
 const elementInputs = ref({ assets: '', liabilities: '', equity: '', revenue: '', expense: '' })
 
 const profitResult = computed(() => computeProfitChain(profitInputs.value))
@@ -157,11 +159,22 @@ const profitFilledLabel = computed(() => `${profitResult.value.filledCount}/${pr
 
 function loadProfitExample() {
   profitInputs.value = { ...PROFIT_EXAMPLE }
-  showProfitExample.value = true
 }
 function clearProfitInputs() {
   profitInputs.value = {}
-  showProfitExample.value = false
+}
+
+/**
+ * 导出利润计算表。
+ * 导出内容包含输入项、计算步骤、结果和恒等式校验，与页面所见一致；
+ * 具体转义 / BOM / 公式注入防护在 lib/csv-export.js 里统一处理并单独断言。
+ */
+function exportProfitTable() {
+  const payload = buildProfitExport(profitInputs.value, { elements: elementInputs.value })
+  downloadCsv(`利润计算表-${stamp()}.csv`, toCsv(payload.headers, payload.rows))
+}
+function clearElementInputs() {
+  elementInputs.value = { assets: '', liabilities: '', equity: '', revenue: '', expense: '' }
 }
 
 // ---------------- 分录生成器 ----------------
@@ -170,13 +183,28 @@ const selectedRuleId = ref('')
 const entryAmount = ref('')
 const entrySide = ref('debit')
 const entryPicks = ref([])
+// 每行一个金额：一行对多行（借 原材料+进项税 / 贷 银行存款）是常态，
+// 只给一个总额是拆不开的——上一版就是卡在这里。
+const entryLineAmounts = ref({})
+const entryNotice = ref('')
+const entryGroup = ref(JOURNAL_GROUPS[0])
+const ruleKeyword = ref('')
 
 const entryHits = computed(() => matchJournalRules(entryQuery.value))
-const groupedRules = computed(() => JOURNAL_GROUPS.map((group) => ({ group, rules: JOURNAL_ENTRY_RULES.filter((rule) => rule.group === group) })))
+const entryAmbiguous = computed(() => isAmbiguous(entryHits.value))
 const selectedRule = computed(() => JOURNAL_ENTRY_RULES.find((rule) => rule.id === selectedRuleId.value) || null)
-const entryPreview = computed(() => (selectedRule.value ? buildEntry(selectedRule.value, { amount: entryAmount.value, side: entrySide.value, picks: entryPicks.value }) : null))
-const entryBalance = computed(() => (entryPreview.value ? checkBalanced(entryPreview.value.lines) : null))
-const activePicks = computed(() => (selectedRule.value ? (entryPicks.value.length ? entryPicks.value : selectedRule.value.lines.map(lineKey)) : []))
+const entryPreview = computed(() => (selectedRule.value ? buildEntry(selectedRule.value, { picks: entryPicks.value, amounts: entryLineAmounts.value }) : null))
+const entryBalance = computed(() => entryPreview.value?.balance || null)
+const entryShapeInfo = computed(() => (selectedRule.value ? entryShape(selectedRule.value) : null))
+const entryStatus = computed(() => {
+  const status = entryPreview.value?.status
+  return {
+    empty: { label: '未填金额', type: 'info' },
+    pending: { label: '待配平', type: 'warning' },
+    balanced: { label: '已配平', type: 'success' },
+    error: { label: '需要调整', type: 'danger' }
+  }[status] || { label: '未选择业务', type: 'info' }
+})
 
 const entryQuickQueries = [
   '收到股东投资款',
@@ -188,30 +216,127 @@ const entryQuickQueries = [
   '收到货款',
   '偿还应付账款',
   '计算应缴增值税',
-  '偿还长期借款'
+  '偿还长期借款',
+  '现金支付办公费用',
+  '提取现金备用',
+  '收到商业承兑汇票',
+  '预付货款',
+  '分配制造费用',
+  '小规模纳税人开票'
 ]
 
-function selectRule(rule) {
+const rulesByGroup = computed(() => JOURNAL_GROUPS.map((group) => ({ group, rules: JOURNAL_ENTRY_RULES.filter((rule) => rule.group === group) })))
+const visibleRules = computed(() => {
+  const keyword = ruleKeyword.value.trim().toLowerCase()
+  if (keyword) {
+    return JOURNAL_ENTRY_RULES.filter((rule) => (
+      rule.title.toLowerCase().includes(keyword)
+      || rule.group.toLowerCase().includes(keyword)
+      || rule.keywords.some((item) => item.toLowerCase().includes(keyword))
+    ))
+  }
+  return JOURNAL_ENTRY_RULES.filter((rule) => rule.group === entryGroup.value)
+})
+const groupRuleCount = computed(() => Object.fromEntries(rulesByGroup.value.map((item) => [item.group, item.rules.length])))
+
+/** 科目代码 → 名称。分录规则里只存代码，名称统一从科目表取，避免两处各写一份对不上 */
+function accountNameOf(code) {
+  return ACCOUNT_ENTRIES.find((item) => item.code === code)?.name || ''
+}
+
+/** 推荐把金额落在"只有一行"的那一侧；两侧都只有一行时落借方（两侧都会填） */
+function defaultSide(rule, picks) {
+  const selected = rule.lines.filter((line) => picks.includes(lineKey(line)))
+  const debit = selected.filter((line) => line.side === 'debit').length
+  const credit = selected.filter((line) => line.side === 'credit').length
+  if (debit === 1 && credit !== 1) return 'debit'
+  if (credit === 1 && debit !== 1) return 'credit'
+  return 'debit'
+}
+
+function selectRule(rule, options = {}) {
   selectedRuleId.value = rule.id
-  entryPicks.value = []
+  const picks = recommendedPicks(rule)
+  entryPicks.value = picks
+  entryLineAmounts.value = {}
   entryAmount.value = ''
-  entrySide.value = rule.lines[0]?.side === 'debit' ? 'debit' : 'debit'
+  entryNotice.value = ''
+  entrySide.value = defaultSide(rule, picks)
+  if (options.syncQuery) entryQuery.value = rule.title
 }
-function useEntryQuery(text) {
-  entryQuery.value = text
-  const hits = matchJournalRules(text)
-  if (hits.length) selectRule(hits[0].rule)
+
+/**
+ * 把"业务金额"落到对应行。
+ * 目标侧只有一行时才自动落；有多行就明确告诉用户需要分别填，不猜。
+ */
+function applyQuickAmount() {
+  const rule = selectedRule.value
+  if (!rule) return
+  const amount = parseAmount(entryAmount.value)
+  const selected = rule.lines.filter((line) => entryPicks.value.includes(lineKey(line)))
+  const sideLines = selected.filter((line) => line.side === entrySide.value)
+  const otherLines = selected.filter((line) => line.side !== entrySide.value)
+  if (amount === null || amount === 0) {
+    entryNotice.value = '请先输入一个大于 0 的金额。'
+    return
+  }
+  if (sideLines.length !== 1) {
+    entryNotice.value = `${entrySide.value === 'debit' ? '借' : '贷'}方已选 ${sideLines.length} 行，无法判断金额属于哪一行；请直接在下面各行填写金额。`
+    return
+  }
+  entryLineAmounts.value[lineKey(sideLines[0])] = String(amount)
+  if (otherLines.length === 1) {
+    entryLineAmounts.value[lineKey(otherLines[0])] = String(amount)
+    entryNotice.value = `已按一对一填写借贷两侧各 ${formatMoney(amount)} 元。`
+  } else {
+    entryNotice.value = `已填入${entrySide.value === 'debit' ? '借' : '贷'}方一行；另一侧有 ${otherLines.length} 行，请分别填写金额。`
+  }
 }
-function togglePick(key) {
-  const list = activePicks.value
-  entryPicks.value = list.includes(key) ? list.filter((item) => item !== key) : [...list, key]
+
+/** 自动补差：差额侧只剩一行未填时，把差额补上去 */
+function autoBalance() {
+  const entry = entryPreview.value
+  if (!entry) return
+  const need = Math.abs(entry.balance.difference)
+  if (need < 0.005) {
+    entryNotice.value = '当前借贷已经相等，无需补差。'
+    return
+  }
+  const shortSide = entry.balance.difference > 0 ? 'credit' : 'debit'
+  const candidates = entry.lines.filter((line) => line.side === shortSide && line.amount === null)
+  if (candidates.length !== 1) {
+    entryNotice.value = `差额 ${formatMoney(need)} 元，但${shortSide === 'debit' ? '借' : '贷'}方有 ${candidates.length} 行未填写，无法确定补到哪一行，请手动填写。`
+    return
+  }
+  entryLineAmounts.value[lineKey(candidates[0])] = String(roundMoney(need))
+  entryNotice.value = `已把差额 ${formatMoney(need)} 元补到「${candidates[0].note || candidates[0].code}」。`
 }
-const allPicked = computed(() => selectedRule.value && activePicks.value.length === selectedRule.value.lines.length)
-function togglePickAll() {
+
+function clearEntryAmounts() {
+  entryLineAmounts.value = {}
+  entryAmount.value = ''
+  entryNotice.value = ''
+}
+
+/**
+ * 勾选/取消一行。
+ * 互斥组内点另一行时自动切换而不是叠加——否则默认就会掉进"多选一"报错里。
+ */
+function togglePick(line) {
+  const key = lineKey(line)
+  if (entryPicks.value.includes(key)) {
+    entryPicks.value = entryPicks.value.filter((item) => item !== key)
+    return
+  }
+  const rule = selectedRule.value
+  const siblings = line.alt ? rule.lines.filter((item) => item.alt === line.alt).map(lineKey) : []
+  entryPicks.value = [...entryPicks.value.filter((item) => !siblings.includes(item)), key]
+}
+function resetPicks() {
   if (!selectedRule.value) return
-  entryPicks.value = allPicked.value ? [] : selectedRule.value.lines.map(lineKey)
+  entryPicks.value = recommendedPicks(selectedRule.value)
+  entryNotice.value = '已恢复为推荐组合。'
 }
-// 把备查式规则按互斥组分块展示：同组只能选一行，不加提示用户会以为"都要记"
 const pickSections = computed(() => {
   const rule = selectedRule.value
   if (!rule) return []
@@ -227,14 +352,72 @@ const pickSections = computed(() => {
   }
   const sections = [...byAlt.entries()].map(([label, lines]) => ({ label, lines, exclusive: true }))
   if (loose.length) sections.push({ label: '', lines: loose, exclusive: false })
-  // 未标注的备查规则：借方或贷方多于一行时兜底提示
-  if (!byAlt.size && rule.lines.length > 2) {
-    return [{ label: '原图为备查式写法，按实际业务只取对应行', lines: rule.lines, exclusive: true }]
-  }
   return sections
 })
 function pickSectionCount(section) {
-  return section.lines.filter((line) => activePicks.value.includes(lineKey(line))).length
+  return section.lines.filter((line) => entryPicks.value.includes(lineKey(line))).length
+}
+
+function useEntryQuery(text) {
+  const raw = String(text ?? '').trim()
+  entryQuery.value = raw
+  const hits = matchJournalRules(raw)
+  if (!hits.length) return
+  selectRule(hits[0].rule)
+  const found = extractAmount(raw)
+  if (found.amount === null) return
+  entryAmount.value = String(found.amount)
+  applyQuickAmount()
+  entryNotice.value = `已从描述中识别金额 ${formatMoney(found.amount)} 元（原文「${found.raw}」）并填入。如不正确，可直接修改下面各行的金额。`
+}
+
+function entryToText(rule, entry) {
+  const head = `${rule.title}（${rule.group}）`
+  const body = entry.lines.map((line) => {
+    const account = line.sub || line.account?.name || line.code
+    const amount = line.amount === null ? '待填' : formatMoney(line.amount)
+    return `${line.side === 'debit' ? '借' : '贷'}　${line.code}　${account}　${amount}`
+  })
+  const tail = `借方合计 ${formatMoney(entry.balance.debit)} / 贷方合计 ${formatMoney(entry.balance.credit)} / 差额 ${formatMoney(entry.balance.difference)}`
+  return [head, ...body, tail].join('\n')
+}
+
+async function copyEntry() {
+  const rule = selectedRule.value
+  const entry = entryPreview.value
+  if (!rule || !entry) return
+  const text = entryToText(rule, entry)
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      entryNotice.value = '分录已复制到剪贴板。'
+      return
+    }
+    throw new Error('clipboard unavailable')
+  } catch {
+    // 剪贴板 API 在非安全上下文/无权限时会失败，退回到临时文本框
+    try {
+      const area = document.createElement('textarea')
+      area.value = text
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.appendChild(area)
+      area.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(area)
+      entryNotice.value = ok ? '分录已复制到剪贴板。' : '复制失败，请手动选中预览内容复制。'
+    } catch {
+      entryNotice.value = '复制失败，请手动选中预览内容复制。'
+    }
+  }
+}
+
+function exportEntry() {
+  const rule = selectedRule.value
+  const entry = entryPreview.value
+  if (!rule || !entry) return
+  const payload = buildEntryExport(rule, entry)
+  downloadCsv(`会计分录-${rule.title}-${stamp()}.csv`, toCsv(payload.headers, payload.rows))
 }
 
 function runClassification() {
@@ -567,7 +750,7 @@ onBeforeUnmount(() => {
           <template #label><span class="tab-label"><el-icon><TrendCharts /></el-icon>利润计算</span></template>
           <div class="profit-layout">
             <el-card class="surface inner-surface" shadow="never">
-              <div class="surface-header"><div><h3 class="surface-title">利润计算器</h3><p class="surface-subtitle">只填最底层的收入、成本、费用和税率，上层利润自动推出来。</p></div><div class="flex-wrap"><el-button size="small" plain @click="loadProfitExample">载入示例</el-button><el-button size="small" plain @click="clearProfitInputs">清空</el-button></div></div>
+              <div class="surface-header"><div><h3 class="surface-title">利润计算器</h3><p class="surface-subtitle">只填最底层的收入、成本、费用和税率，上层利润自动推出来。</p></div><div class="flex-wrap"><el-button size="small" plain @click="loadProfitExample">载入示例</el-button><el-button size="small" plain @click="clearProfitInputs">清空</el-button><el-button size="small" type="primary" plain @click="exportProfitTable"><el-icon><Download /></el-icon>导出表格</el-button></div></div>
               <div class="profit-inputs">
                 <div v-for="group in profitInputGroups" :key="group.id" class="profit-input-group">
                   <div class="section-kicker">{{ group.label }}</div>
@@ -581,6 +764,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
               <p class="text-muted text-small mt-12">已填 {{ profitFilledLabel }} 项。留空的项目不参与计算，也不会被当成 0 —— 依赖它的结果会标为「待补数据」。</p>
+              <p class="text-muted text-small mt-12">导出的表格包含输入项、每一步计算过程、结果和恒等式校验，可直接用 Excel 打开复核（金额不带千分位，Excel 能直接求和）。</p>
             </el-card>
             <el-card class="surface inner-surface" shadow="never">
               <div class="surface-header"><div><h3 class="surface-title">计算过程</h3><p class="surface-subtitle">按步骤从主营业务利润一路推到净利润。</p></div><el-tag v-if="!profitResult.complete" type="warning" effect="light">缺 {{ profitResult.missingCount }} 项</el-tag><el-tag v-else-if="profitResult.hasLoss" type="danger" effect="light">本期亏损</el-tag><el-tag v-else type="success" effect="light">已算完</el-tag></div>
@@ -592,6 +776,7 @@ onBeforeUnmount(() => {
                   <div v-if="step.note" class="formula-note"><el-icon><InfoFilled /></el-icon>{{ step.note }}</div>
                 </li>
               </ol>
+              <div v-if="!profitResult.complete" class="formula-missing mt-12">还差这些底层输入项：{{ profitResult.missingInputs.join('、') }}</div>
               <div v-if="profitResult.netProfit !== null" class="net-profit-box" :class="{ 'is-loss': profitResult.hasLoss }">
                 <span>净利润</span>
                 <strong>{{ formatMoney(profitResult.netProfit) }}</strong>
@@ -602,7 +787,7 @@ onBeforeUnmount(() => {
           </div>
 
           <el-card class="surface inner-surface mt-16" shadow="never">
-            <div class="surface-header"><div><h3 class="surface-title">会计恒等式校验</h3><p class="surface-subtitle">资产 = 负债 + 所有者权益，以及扩展式 资产 = 负债 + 所有者权益 +（收入 − 费用）</p></div><el-tag :type="equationResult.status === 'ok' ? 'success' : equationResult.status === 'error' ? 'danger' : 'warning'" effect="light">{{ { ok: '平衡', error: '不平衡', incomplete: '待补数据' }[equationResult.status] }}</el-tag></div>
+            <div class="surface-header"><div><h3 class="surface-title">会计恒等式校验</h3><p class="surface-subtitle">资产 = 负债 + 所有者权益，以及扩展式 资产 = 负债 + 所有者权益 +（收入 − 费用）</p></div><div class="flex-wrap"><el-button size="small" plain @click="clearElementInputs">清空</el-button><el-tag :type="equationResult.status === 'ok' ? 'success' : equationResult.status === 'error' ? 'danger' : 'warning'" effect="light">{{ { ok: '平衡', error: '不平衡', incomplete: '待补数据' }[equationResult.status] }}</el-tag></div></div>
             <div class="element-inputs">
               <label v-for="item in ELEMENT_INPUTS" :key="item.id" class="profit-field">
                 <span class="profit-field-label">{{ item.label }}</span>
@@ -625,75 +810,99 @@ onBeforeUnmount(() => {
           <div class="entry-layout">
             <div>
               <el-card class="surface inner-surface" shadow="never">
-                <div class="surface-header"><div><h3 class="surface-title">说出业务，自动生成分录</h3><p class="surface-subtitle">覆盖 16 大类 40+ 项常用业务，借贷科目全部取自本页的 89 个常用科目表。</p></div></div>
-                <div class="query-row"><el-input v-model="entryQuery" size="large" clearable placeholder="例如：收到股东投资款 / 计提坏账准备 / 确认销售收入" @keyup.enter="useEntryQuery(entryQuery)"><template #prefix><el-icon><Search /></el-icon></template></el-input><el-button type="primary" size="large" @click="useEntryQuery(entryQuery)">生成分录</el-button></div>
+                <div class="surface-header"><div><h3 class="surface-title">说出业务，自动生成分录</h3><p class="surface-subtitle">覆盖 {{ JOURNAL_GROUPS.length }} 大类 {{ JOURNAL_ENTRY_RULES.length }} 项常用业务，科目全部取自本页的 {{ ACCOUNT_ENTRIES.length }} 个常用科目表。</p></div></div>
+                <div class="query-row"><el-input v-model="entryQuery" size="large" clearable placeholder="例如：收到股东投资款 30 万 / 计提坏账准备 / 确认销售收入" @keyup.enter="useEntryQuery(entryQuery)"><template #prefix><el-icon><Search /></el-icon></template></el-input><el-button type="primary" size="large" @click="useEntryQuery(entryQuery)">生成分录</el-button></div>
                 <div class="quick-chips"><button v-for="item in entryQuickQueries" :key="item" type="button" class="model-chip" @click="useEntryQuery(item)">{{ item }}</button></div>
-                <div v-if="entryQuery && !entryHits.length" class="result-empty compact-empty mt-16"><div><el-icon><Search /></el-icon><div>没匹配到业务。试试更接近的说法，例如「购买原材料」「计提应付职工薪酬」。</div></div></div>
-                <div v-else-if="entryHits.length" class="entry-hits">
-                  <div class="section-kicker">匹配到 {{ entryHits.length }} 条</div>
-                  <button v-for="hit in entryHits.slice(0, 6)" :key="hit.rule.id" type="button" class="entry-hit" :class="{ 'is-active': hit.rule.id === selectedRuleId }" @click="selectRule(hit.rule)">
-                    <strong>{{ hit.rule.title }}</strong>
-                    <span class="text-muted text-small">{{ hit.rule.group }} · 命中：{{ hit.matched.join('、') }}</span>
-                  </button>
-                </div>
+                <p class="text-muted text-small mt-12">可以直接连金额一起说，例如「收到股东投资款 30 万」，金额会自动识别填入（支持 30 万 / 1.5万元 / ￥300,000.00）。</p>
+                <div v-if="entryQuery && !entryHits.length" class="result-empty compact-empty mt-16"><div><el-icon><Search /></el-icon><div>没匹配到业务。试试更接近的说法，例如「购买原材料」「计提应付职工薪酬」，或从右侧「全部业务」里选。</div></div></div>
+                <template v-else-if="entryHits.length">
+                  <div v-if="entryAmbiguous" class="ambiguous-note"><el-icon><WarningFilled /></el-icon><span>这句话能对上多个业务，下面并列的候选得分相同，请确认要生成哪一个，别直接采用第一条。</span></div>
+                  <div class="entry-hits">
+                    <div class="section-kicker">匹配到 {{ entryHits.length }} 条</div>
+                    <button v-for="hit in entryHits.slice(0, 6)" :key="hit.rule.id" type="button" class="entry-hit" :class="{ 'is-active': hit.rule.id === selectedRuleId }" @click="selectRule(hit.rule, { syncQuery: true })">
+                      <strong>{{ hit.rule.title }}<el-tag v-if="hit.primary" size="small" type="success" effect="light">推荐</el-tag><el-tag v-else-if="entryAmbiguous && hit.score === entryHits[0].score" size="small" type="warning" effect="light">并列</el-tag></strong>
+                      <span class="text-muted text-small">{{ hit.rule.group }} · 命中：{{ hit.matched.join('、') }}</span>
+                    </button>
+                  </div>
+                </template>
               </el-card>
 
               <el-card v-if="selectedRule" class="surface inner-surface mt-16" shadow="never">
-                <div class="surface-header"><div><h3 class="surface-title">填写金额并配平</h3><p class="surface-subtitle">复式记账法：有借必有贷，借贷必相等。</p></div><el-tag v-if="entryBalance?.balanced" type="success" effect="light">已配平</el-tag><el-tag v-else-if="entryPreview?.amount" type="warning" effect="light">待配平</el-tag></div>
-                <div class="entry-controls">
-                  <label class="profit-field"><span class="profit-field-label">业务金额（元）</span><el-input v-model="entryAmount" placeholder="不填则只给借贷方向" inputmode="decimal" /></label>
-                  <label class="profit-field"><span class="profit-field-label">金额记在哪一侧</span><el-select v-model="entrySide"><el-option label="借方" value="debit" /><el-option label="贷方" value="credit" /></el-select></label>
+                <div class="surface-header"><div><h3 class="surface-title">填写金额并配平</h3><p class="surface-subtitle">复式记账法：有借必有贷，借贷必相等。每一行都可以单独填金额。</p></div><el-tag :type="entryStatus.type" effect="light">{{ entryStatus.label }}</el-tag></div>
+                <div class="entry-quick">
+                  <label class="profit-field"><span class="profit-field-label">业务金额（元）</span><el-input v-model="entryAmount" placeholder="如 300000 或 30 万" inputmode="decimal" @keyup.enter="applyQuickAmount" /></label>
+                  <label class="profit-field"><span class="profit-field-label">填到哪一侧</span><el-select v-model="entrySide"><el-option label="借方" value="debit" /><el-option label="贷方" value="credit" /></el-select></label>
+                  <div class="entry-quick-actions">
+                    <el-button size="small" type="primary" plain @click="applyQuickAmount">填入金额</el-button>
+                    <el-button size="small" plain @click="autoBalance">自动补差额</el-button>
+                    <el-button size="small" text @click="clearEntryAmounts">清空金额</el-button>
+                  </div>
                 </div>
-                <div class="pick-head"><span class="section-kicker">参与本次业务的科目</span><el-button size="small" text @click="togglePickAll">{{ allPicked ? '取消全选' : '全选' }}</el-button></div>
+                <p v-if="entryNotice" class="entry-notice">{{ entryNotice }}</p>
+                <p v-else-if="entryShapeInfo?.mode === 'split'" class="text-muted text-small">本业务是多行结构（借方 {{ entryShapeInfo.debit }} 行 / 贷方 {{ entryShapeInfo.credit }} 行），金额需要按实际拆到各行；也可以填「业务金额」后点「填入金额」，剩下的用「自动补差额」。</p>
+                <div class="pick-head"><span class="section-kicker">参与本次业务的科目</span><el-button size="small" text @click="resetPicks">恢复推荐组合</el-button></div>
                 <div v-for="(section, index) in pickSections" :key="index" class="pick-section">
                   <div v-if="section.label" class="pick-section-label"><span>{{ section.label }}</span><em v-if="section.exclusive" class="pick-exclusive">{{ pickSectionCount(section) }}/{{ section.lines.length }}</em></div>
                   <div class="pick-list">
-                    <label v-for="line in section.lines" :key="lineKey(line)" class="pick-item" :class="[line.side, { 'is-off': !activePicks.includes(lineKey(line)) }]">
-                      <input type="checkbox" :checked="activePicks.includes(lineKey(line))" @change="togglePick(lineKey(line))" />
-                      <span class="pick-side">{{ line.side === 'debit' ? '借' : '贷' }}</span>
-                      <span class="pick-account"><code>{{ line.code }}</code> {{ line.note || '' }}<em v-if="line.sub">{{ line.sub }}</em></span>
-                    </label>
+                    <div v-for="line in section.lines" :key="lineKey(line)" class="pick-row" :class="[line.side, { 'is-off': !entryPicks.includes(lineKey(line)) }]">
+                      <label class="pick-item">
+                        <input type="checkbox" :checked="entryPicks.includes(lineKey(line))" @change="togglePick(line)" />
+                        <span class="pick-side">{{ line.side === 'debit' ? '借' : '贷' }}</span>
+                        <span class="pick-account"><code>{{ line.code }}</code> {{ accountNameOf(line.code) }}<em v-if="line.sub">——{{ line.sub }}</em><small v-if="line.note">（{{ line.note }}）</small></span>
+                      </label>
+                      <el-input class="pick-amount" v-model="entryLineAmounts[lineKey(line)]" :disabled="!entryPicks.includes(lineKey(line))" placeholder="金额" inputmode="decimal" />
+                    </div>
                   </div>
                 </div>
-                <p v-if="entryPreview?.message" class="text-muted text-small mt-12">{{ entryPreview.message }}</p>
                 <ul v-if="entryPreview?.issues?.length" class="entry-issues"><li v-for="issue in entryPreview.issues" :key="issue">{{ issue }}</li></ul>
                 <div v-if="entryBalance" class="entry-balance" :class="{ 'is-balanced': entryBalance.balanced }">
                   <span>借方合计 <strong>{{ formatMoney(entryBalance.debit) }}</strong></span>
                   <span>贷方合计 <strong>{{ formatMoney(entryBalance.credit) }}</strong></span>
-                  <span>差额 <strong>{{ formatMoney(entryBalance.difference) }}</strong></span>
+                  <span>差额 <strong :class="{ 'is-off': entryBalance.difference !== 0 }">{{ formatMoney(entryBalance.difference) }}</strong></span>
                 </div>
               </el-card>
             </div>
 
             <div>
               <el-card class="surface inner-surface" shadow="never">
-                <div class="surface-header"><div><h3 class="surface-title">分录预览</h3><p class="surface-subtitle">借方在上、贷方在下，与记账凭证一致。</p></div></div>
+                <div class="surface-header"><div><h3 class="surface-title">分录预览</h3><p class="surface-subtitle">借方在上、贷方在下，与记账凭证一致。</p></div><div class="flex-wrap"><el-button size="small" plain :disabled="!entryPreview?.lines?.length" @click="copyEntry"><el-icon><CopyDocument /></el-icon>复制分录</el-button><el-button size="small" type="primary" plain :disabled="!entryPreview?.lines?.length" @click="exportEntry"><el-icon><Download /></el-icon>导出表格</el-button></div></div>
                 <div v-if="entryPreview" class="entry-preview">
                   <div class="entry-preview-title">{{ selectedRule.title }}</div>
                   <p class="text-muted text-small">{{ selectedRule.summary }}</p>
-                  <div v-for="(line, index) in entryPreview.lines" :key="`${lineKey(line)}-${index}`" class="entry-line" :class="line.side">
-                    <span class="entry-side-tag">{{ line.side === 'debit' ? '借' : '贷' }}</span>
-                    <span class="entry-account"><strong>{{ line.sub || line.account?.name || line.code }}</strong><em v-if="line.sub">{{ line.account?.name }}</em></span>
-                    <span class="entry-code">{{ line.code }}</span>
-                    <span class="entry-amount">{{ line.amount === null ? '—' : formatMoney(line.amount) }}</span>
-                  </div>
-                  <div v-if="!entryPreview.lines.length" class="result-empty compact-empty"><div><el-icon><InfoFilled /></el-icon><div>没有勾选任何科目</div></div></div>
+                  <table class="entry-table">
+                    <thead><tr><th>方向</th><th>会计科目</th><th class="num">金额（元）</th></tr></thead>
+                    <tbody>
+                      <tr v-for="(line, index) in entryPreview.lines" :key="`${lineKey(line)}-${index}`" :class="line.side">
+                        <td><span class="entry-side-tag">{{ line.side === 'debit' ? '借' : '贷' }}</span></td>
+                        <td><code>{{ line.code }}</code> {{ line.account?.name || '' }}<em v-if="line.sub">——{{ line.sub }}</em></td>
+                        <td class="num">{{ line.amount === null ? '—' : formatMoney(line.amount) }}</td>
+                      </tr>
+                      <tr v-if="!entryPreview.lines.length"><td colspan="3" class="text-muted">没有勾选任何科目</td></tr>
+                    </tbody>
+                    <tfoot>
+                      <tr><td colspan="2">借方合计</td><td class="num">{{ formatMoney(entryBalance?.debit ?? 0) }}</td></tr>
+                      <tr><td colspan="2">贷方合计</td><td class="num">{{ formatMoney(entryBalance?.credit ?? 0) }}</td></tr>
+                      <tr><td colspan="2">差额</td><td class="num">{{ formatMoney(entryBalance?.difference ?? 0) }}</td></tr>
+                    </tfoot>
+                  </table>
                   <div v-if="selectedRule.formula" class="entry-formula"><div class="section-kicker">配套公式</div><code>{{ selectedRule.formula }}</code></div>
                   <div v-if="selectedRule.sourceNote" class="manual-note mt-12"><el-icon><WarningFilled /></el-icon><span>{{ selectedRule.sourceNote }}</span></div>
                   <div v-if="selectedRule.usage" class="manual-note mt-12"><el-icon><InfoFilled /></el-icon><span>{{ selectedRule.usage }}</span></div>
                 </div>
-                <div v-else class="result-empty tall-empty"><div><el-icon><EditPen /></el-icon><div>先说出业务或从右侧选一类</div></div></div>
+                <div v-else class="result-empty tall-empty"><div><el-icon><EditPen /></el-icon><div>先说出业务，或从下方「全部业务」里选一类</div></div></div>
               </el-card>
 
               <el-card class="surface inner-surface mt-16" shadow="never">
-                <div class="surface-header"><div><h3 class="surface-title">全部业务（16 大类）</h3><p class="surface-subtitle">共 {{ JOURNAL_ENTRY_RULES.length }} 项，点标题即可载入。</p></div></div>
-                <el-collapse>
-                  <el-collapse-item v-for="item in groupedRules" :key="item.group" :title="`${item.group}（${item.rules.length}）`" :name="item.group">
-                    <div class="rule-list">
-                      <button v-for="rule in item.rules" :key="rule.id" type="button" class="rule-chip" :class="{ 'is-active': rule.id === selectedRuleId }" @click="selectRule(rule)">{{ rule.title }}</button>
-                    </div>
-                  </el-collapse-item>
-                </el-collapse>
+                <div class="surface-header"><div><h3 class="surface-title">全部业务</h3><p class="surface-subtitle">共 {{ JOURNAL_ENTRY_RULES.length }} 项，覆盖 {{ JOURNAL_GROUPS.length }} 大类；点标题即可载入。</p></div></div>
+                <el-input v-model="ruleKeyword" clearable placeholder="搜索业务名称、关键词或大类"><template #prefix><el-icon><Search /></el-icon></template></el-input>
+                <div v-if="!ruleKeyword" class="group-tabs">
+                  <button v-for="item in rulesByGroup" :key="item.group" type="button" class="group-tab" :class="{ 'is-active': item.group === entryGroup }" @click="entryGroup = item.group">{{ item.group }}<em>{{ groupRuleCount[item.group] }}</em></button>
+                </div>
+                <p v-else class="text-muted text-small mt-12">搜索到 {{ visibleRules.length }} 项</p>
+                <div class="rule-list">
+                  <button v-for="rule in visibleRules" :key="rule.id" type="button" class="rule-chip" :class="{ 'is-active': rule.id === selectedRuleId }" @click="selectRule(rule, { syncQuery: true })">{{ rule.title }}</button>
+                </div>
+                <div v-if="!visibleRules.length" class="empty-state"><el-icon><Search /></el-icon><strong>没有匹配的业务</strong><span>换一个关键词，或清空搜索按大类浏览。</span></div>
               </el-card>
             </div>
           </div>
@@ -873,49 +1082,64 @@ onBeforeUnmount(() => {
 .entry-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .entry-hits { margin-top: 16px; }
 .entry-hit { display: block; width: 100%; padding: 9px 11px; margin-top: 7px; border: 1px solid var(--line-soft); border-radius: 9px; background: #fff; text-align: left; cursor: pointer; }
-.entry-hit strong { display: block; color: var(--ink-900); font-size: 0.875rem; }
+.entry-hit strong { display: flex; align-items: center; gap: 6px; color: var(--ink-900); font-size: 0.875rem; }
 .entry-hit span { display: block; margin-top: 2px; }
 .entry-hit:hover { border-color: var(--teal); }
 .entry-hit.is-active { border-color: var(--teal); background: rgba(24,169,153,.08); }
-.entry-controls { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; }
+.ambiguous-note { display: flex; gap: 7px; margin-top: 14px; padding: 10px 11px; border: 1px solid rgba(208,138,29,.36); border-radius: 9px; background: rgba(208,138,29,.08); color: var(--ink-600); font-size: 0.8125rem; line-height: 1.6; }
+.ambiguous-note .el-icon { flex: 0 0 auto; margin-top: 2px; color: var(--amber); }
+.entry-quick { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; align-items: end; }
+.entry-quick-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.entry-notice { margin: 12px 0 0; padding: 9px 11px; border-radius: 8px; background: rgba(238,245,255,.62); color: var(--ink-600); font-size: 0.8125rem; line-height: 1.6; }
 .pick-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; }
 .pick-section + .pick-section { margin-top: 12px; }
 .pick-section-label { display: flex; align-items: center; gap: 7px; color: var(--ink-600); font-size: 0.8125rem; }
 .pick-exclusive { padding: 1px 7px; border-radius: 999px; background: rgba(24,169,153,.12); color: var(--teal); font-size: 0.75rem; font-style: normal; font-variant-numeric: tabular-nums; }
 .pick-list { display: flex; flex-direction: column; gap: 6px; margin-top: 7px; }
-.pick-item { display: flex; align-items: flex-start; gap: 9px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 8px; cursor: pointer; }
-.pick-item.is-off { opacity: .45; }
+.pick-row { display: grid; grid-template-columns: minmax(0, 1fr) 116px; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: #fff; }
+.pick-row.is-off { opacity: .5; }
+.pick-item { display: flex; align-items: flex-start; gap: 9px; min-width: 0; cursor: pointer; }
 .pick-item input { margin-top: 3px; flex: 0 0 auto; }
 .pick-side { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 6px; font-size: 0.8125rem; font-weight: 600; line-height: 22px; text-align: center; }
-.pick-item.debit .pick-side { color: var(--teal); background: rgba(24,169,153,.12); }
-.pick-item.credit .pick-side { color: var(--blue); background: rgba(64,120,255,.12); }
+.pick-row.debit .pick-side { color: var(--teal); background: rgba(24,169,153,.12); }
+.pick-row.credit .pick-side { color: var(--blue); background: rgba(64,120,255,.12); }
 .pick-account { color: var(--ink-700); font-size: 0.8125rem; line-height: 1.5; }
 .pick-account code { color: var(--ink-500); font-size: 0.75rem; }
-.pick-account em { display: block; color: var(--ink-500); font-size: 0.75rem; font-style: normal; }
+.pick-account em { color: var(--ink-500); font-size: 0.75rem; font-style: normal; }
+.pick-account small { color: var(--ink-400); font-size: 0.75rem; }
+.pick-amount { width: 116px; }
 .entry-issues { margin: 10px 0 0; padding-left: 18px; color: var(--amber); font-size: 0.8125rem; line-height: 1.6; }
 .entry-balance { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; padding: 11px 13px; border: 1px solid var(--line-soft); border-radius: 9px; background: rgba(245,248,252,.6); color: var(--ink-500); font-size: 0.875rem; }
 .entry-balance strong { color: var(--ink-900); font-variant-numeric: tabular-nums; }
+.entry-balance strong.is-off { color: var(--red); }
 .entry-balance.is-balanced { border-color: rgba(24,169,153,.34); background: rgba(24,169,153,.07); }
 .entry-balance.is-balanced strong { color: var(--teal); }
 .entry-preview-title { color: var(--ink-900); font-size: 1rem; font-weight: 600; }
-.entry-line { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px dashed var(--line-soft); }
-.entry-line:last-of-type { border-bottom: 0; }
-.entry-side-tag { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 6px; font-size: 0.8125rem; font-weight: 600; line-height: 24px; text-align: center; }
-.entry-line.debit .entry-side-tag { color: var(--teal); background: rgba(24,169,153,.12); }
-.entry-line.credit .entry-side-tag { color: var(--blue); background: rgba(64,120,255,.12); }
-.entry-account { flex: 1 1 auto; min-width: 0; }
-.entry-account strong { display: block; color: var(--ink-900); font-size: 0.875rem; }
-.entry-account em { display: block; color: var(--ink-500); font-size: 0.75rem; font-style: normal; }
-.entry-code { flex: 0 0 auto; color: var(--ink-500); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
-.entry-amount { flex: 0 0 auto; min-width: 88px; text-align: right; color: var(--ink-900); font-size: 0.9375rem; font-variant-numeric: tabular-nums; }
+.entry-table { width: 100%; margin-top: 12px; border-collapse: collapse; }
+.entry-table th, .entry-table td { padding: 8px 9px; border-bottom: 1px solid var(--line-soft); text-align: left; font-size: 0.8125rem; }
+.entry-table th { color: var(--ink-500); background: rgba(245,248,252,.7); font-weight: 600; }
+.entry-table th.num, .entry-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.entry-table td code { color: var(--ink-500); font-size: 0.75rem; }
+.entry-table td em { color: var(--ink-500); font-size: 0.75rem; font-style: normal; }
+.entry-table tbody tr.debit td:first-child { border-left: 2px solid rgba(24,169,153,.5); }
+.entry-table tbody tr.credit td:first-child { border-left: 2px solid rgba(64,120,255,.45); }
+.entry-table tfoot td { color: var(--ink-600); background: rgba(245,248,252,.5); font-weight: 600; }
+.entry-side-tag { display: inline-block; width: 24px; height: 24px; border-radius: 6px; font-size: 0.8125rem; font-weight: 600; line-height: 24px; text-align: center; }
+.entry-table tr.debit .entry-side-tag { color: var(--teal); background: rgba(24,169,153,.12); }
+.entry-table tr.credit .entry-side-tag { color: var(--blue); background: rgba(64,120,255,.12); }
 .entry-formula { margin-top: 14px; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 9px; }
 .entry-formula code { display: block; margin-top: 5px; color: var(--ink-700); font-size: 0.8125rem; line-height: 1.5; word-break: break-word; }
-.rule-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.rule-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; max-height: 420px; overflow: auto; }
 .rule-chip { padding: 5px 10px; border: 1px solid var(--line-soft); border-radius: 999px; background: #fff; color: var(--ink-700); font-size: 0.8125rem; cursor: pointer; }
 .rule-chip:hover { border-color: var(--teal); color: var(--teal); }
 .rule-chip.is-active { border-color: var(--teal); background: rgba(24,169,153,.1); color: var(--teal); font-weight: 600; }
+.group-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.group-tab { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid var(--line-soft); border-radius: 999px; background: #fff; color: var(--ink-600); font-size: 0.8125rem; cursor: pointer; }
+.group-tab em { color: var(--ink-400); font-size: 0.75rem; font-style: normal; font-variant-numeric: tabular-nums; }
+.group-tab:hover { border-color: var(--teal); color: var(--teal); }
+.group-tab.is-active { border-color: var(--teal); background: rgba(24,169,153,.1); color: var(--teal); font-weight: 600; }
 @media (max-width: 900px) {
-  .profit-layout, .entry-layout, .profit-inputs, .entry-controls, .element-inputs { grid-template-columns: minmax(0, 1fr); }
+  .profit-layout, .entry-layout, .profit-inputs, .entry-quick, .element-inputs { grid-template-columns: minmax(0, 1fr); }
 }
 .tall-empty { min-height: 360px; }
 .basics-side { display: flex; flex-direction: column; gap: 12px; }

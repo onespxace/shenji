@@ -1,0 +1,115 @@
+{
+  "settleMs": 4000,
+  "views": [
+    {
+      "name": "布局 · 1920px",
+      "route": "http://localhost:4288/layout-audit.html?w=1920&h=800&cb=layout0",
+      "steps": [
+        {
+          "label": "1920 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 1920 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 1440px",
+      "route": "http://localhost:4288/layout-audit.html?w=1440&h=800&cb=layout1",
+      "steps": [
+        {
+          "label": "1440 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 1440 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 1280px",
+      "route": "http://localhost:4288/layout-audit.html?w=1280&h=800&cb=layout2",
+      "steps": [
+        {
+          "label": "1280 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 1280 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 1120px",
+      "route": "http://localhost:4288/layout-audit.html?w=1120&h=800&cb=layout3",
+      "steps": [
+        {
+          "label": "1120 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 1120 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 1024px",
+      "route": "http://localhost:4288/layout-audit.html?w=1024&h=800&cb=layout4",
+      "steps": [
+        {
+          "label": "1024 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 1024 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 960px",
+      "route": "http://localhost:4288/layout-audit.html?w=960&h=800&cb=layout5",
+      "steps": [
+        {
+          "label": "960 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 960 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 880px",
+      "route": "http://localhost:4288/layout-audit.html?w=880&h=800&cb=layout6",
+      "steps": [
+        {
+          "label": "880 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 880 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 821px",
+      "route": "http://localhost:4288/layout-audit.html?w=821&h=800&cb=layout7",
+      "steps": [
+        {
+          "label": "821 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 821 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 820px",
+      "route": "http://localhost:4288/layout-audit.html?w=820&h=800&cb=layout8",
+      "steps": [
+        {
+          "label": "820 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 820 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 768px",
+      "route": "http://localhost:4288/layout-audit.html?w=768&h=800&cb=layout9",
+      "steps": [
+        {
+          "label": "768 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 768 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    },
+    {
+      "name": "布局 · 390px",
+      "route": "http://localhost:4288/layout-audit.html?w=390&h=800&cb=layout10",
+      "steps": [
+        {
+          "label": "390 视口布局不变量",
+          "run": "if(!window.__ready) return {ok:false,detail:/探针未就绪/}; await window.__ready; await new Promise(r=>setTimeout(r,600)); const m=window.__audit(); const problems=[]; if(m.state!==\"ready\") problems.push(\"state=\"+m.state); if(!m.navPresent) problems.push(\"无导航\"); if(m.wrapped) problems.push(\"导航换行 rows=\"+m.itemRows); if(m.itemHeights.length>1) problems.push(\"导航项不等高 \"+JSON.stringify(m.itemHeights)); if(m.horizontalScroll) problems.push(\"横向滚动 \"+m.bodyScrollW+\">\"+m.docClientW); if(m.navVisible && m.navOverflowX) problems.push(\"导航内容被裁 scrollW=\"+m.navScrollW+\" clientW=\"+m.navClientW); const expectTabbar = 390 <= 820; if(expectTabbar){ if(m.navVisible) problems.push(\"窄屏仍显示顶部导航\"); if(!m.tabbarVisible) problems.push(\"窄屏缺少底部标签栏\"); } else { if(!m.navVisible) problems.push(\"宽屏未显示顶部导航\"); if(m.tabbarVisible) problems.push(\"宽屏仍在显示底部标签栏\"); } if(m.navVisible && m.brandRight!=null && m.brandRight>m.navLeft) problems.push(\"品牌与导航重叠\"); if(m.navVisible && m.navRight!=null && m.actionsLeft!=null && m.navRight>m.actionsLeft) problems.push(\"导航与右侧操作重叠\"); return { ok: problems.length===0, detail: problems.length?problems.join(\"；\"):(\"items=\"+m.itemCount+\" 余量=\"+(m.actionsLeft!=null&&m.navRight!=null?Math.round(m.actionsLeft-m.navRight):\"-\")) };"
+        }
+      ]
+    }
+  ]
+}

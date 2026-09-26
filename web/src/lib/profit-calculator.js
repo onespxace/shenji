@@ -12,6 +12,8 @@
 // 与现行《企业会计准则》把投资收益计入营业利润的口径不同。
 // 本模块**忠实按原图实现**，并在 note 中标注该差异，不擅自改口径。
 
+import { moneyCell } from './csv-export.js'
+
 /** 底层输入项：全部由使用者填写 */
 export const PROFIT_INPUTS = [
   { id: 'mainRevenue', label: '主营业务收入', group: 'main', step: 1 },
@@ -115,6 +117,38 @@ export const ELEMENT_INPUTS = [
 ]
 
 /**
+ * 节点 id → 中文名。
+ * 用户看到的必须是"主营业务税金及附加"，不是 mainTax。
+ * 缺依赖提示直接吐内部 id 是上一版的真实缺陷（界面曾显示"缺：mainTax"）。
+ */
+const NODE_LABEL = Object.fromEntries([
+  ...PROFIT_INPUTS.map((item) => [item.id, item.label]),
+  ...PROFIT_FORMULAS.map((item) => [item.id, item.label])
+])
+const INPUT_IDS = new Set(PROFIT_INPUTS.map((item) => item.id))
+
+export function labelOfNode(id) {
+  return NODE_LABEL[id] || id
+}
+
+/** 把一个「缺了哪个节点」的问题，顺藤摸瓜落到"到底要填哪几个输入项" */
+function resolveToInputs(nodeIds) {
+  const out = []
+  const seen = new Set()
+  const walk = (id) => {
+    if (seen.has(id)) return
+    seen.add(id)
+    if (INPUT_IDS.has(id)) { out.push(id); return }
+    const formula = PROFIT_FORMULAS.find((item) => item.id === id)
+    if (!formula) return
+    for (const dep of formula.deps) walk(dep)
+  }
+  for (const id of nodeIds) walk(id)
+  // 保持 PROFIT_INPUTS 的原始顺序，读起来稳定
+  return PROFIT_INPUTS.filter((item) => out.includes(item.id)).map((item) => item.id)
+}
+
+/**
  * 把原始输入解析为数值表。
  * @param {object} raw 例如 { mainRevenue: '1000', taxRate: '25' }
  * @returns {{values: object, filled: Set<string>}}
@@ -141,12 +175,13 @@ export function parseProfitInputs(raw = {}) {
 export function computeProfitChain(raw = {}) {
   const { values, filled } = parseProfitInputs(raw)
   const steps = []
-  let missingTotal = 0
 
   for (const formula of [...PROFIT_FORMULAS].sort((a, b) => a.step - b.step)) {
     const missingDeps = formula.deps.filter((dep) => !(dep in values))
-    missingTotal += missingDeps.length
     if (missingDeps.length) {
+      // 直接缺的可能是上游公式（如"主营业务利润"），但用户能动手填的只有底层输入。
+      // 因此既给出直接缺口，也给出"最终要填哪几项"。
+      const leafIds = resolveToInputs(missingDeps)
       steps.push({
         id: formula.id,
         label: formula.label,
@@ -155,7 +190,10 @@ export function computeProfitChain(raw = {}) {
         step: formula.step,
         status: 'incomplete',
         value: null,
-        missing: missingDeps,
+        missing: leafIds.map(labelOfNode),
+        missingIds: leafIds,
+        missingDeps,
+        missingDepLabels: missingDeps.map(labelOfNode),
         note: formula.note || ''
       })
       continue
@@ -172,16 +210,25 @@ export function computeProfitChain(raw = {}) {
       value: rawValue,
       display: roundMoney(rawValue),
       missing: [],
+      missingIds: [],
+      missingDeps: [],
+      missingDepLabels: [],
       note: formula.note || ''
     })
     values[formula.id] = rawValue
   }
 
   const netStep = steps.find((item) => item.id === 'netProfit')
+  // 未填项 = 底层输入里没填的那些。
+  // 不能用"每个公式缺失依赖数之和"——那会把同一项在下游公式里重复计数
+  // （全部留空时曾显示"缺 20 项"，而输入项总共只有 12 个）。
+  const missingInputIds = PROFIT_INPUTS.filter((item) => !filled.has(item.id)).map((item) => item.id)
   return {
     steps,
-    complete: missingTotal === 0,
-    missingCount: missingTotal,
+    complete: missingInputIds.length === 0,
+    missingCount: missingInputIds.length,
+    missingIds: missingInputIds,
+    missingInputs: missingInputIds.map(labelOfNode),
     filledCount: filled.size,
     totalInputs: PROFIT_INPUTS.length,
     netProfit: netStep && netStep.status === 'ok' ? netStep.value : null,
@@ -303,4 +350,105 @@ export const PROFIT_EXAMPLE_EXPECTED = {
   totalProfit: 1376400,     // 1321400+50000+5000
   incomeTax: 344100,        // 1376400*0.25
   netProfit: 1032300        // 1376400-344100
+}
+
+// ---------------- 导出表格 ----------------
+
+/**
+ * 导出列定义。放在这里而不是写在 Vue 里，
+ * 是为了让"界面展示的列"和"导出的列"有唯一事实源，断言也能直接校验。
+ */
+export const PROFIT_EXPORT_HEADERS = ['类别', '项目', '说明', '数值', '单位', '状态']
+
+/**
+ * 把一次完整计算（输入项 + 计算步骤 + 结果 + 恒等式校验）组织成可直接导出的表格行。
+ *
+ * 三条硬要求：
+ *  1) 导出的是**计算过程**，不只是结果——用户拿去做复核时要能一步步对上账。
+ *  2) 未填项导出为空值而不是 0——导出表里出现看起来精确的 0 比留空危险得多。
+ *  3) 数值不带千分位、两位小数，Excel 打开后仍然是数字，可以直接求和。
+ *
+ * @param {object} raw 输入项原始值
+ * @param {{elements?: object}} [options] elements 为会计恒等式校验的输入
+ * @returns {{headers: string[], rows: Array<Array<string>>, complete: boolean, missingCount: number, netProfit: number|null}}
+ */
+export function buildProfitExport(raw = {}, options = {}) {
+  const chain = computeProfitChain(raw)
+  const { values, filled } = parseProfitInputs(raw)
+  const equations = checkAccountingEquations(options.elements || {})
+  const rows = []
+
+  rows.push([
+    '概览',
+    '数据完整性',
+    `已填 ${chain.filledCount}/${chain.totalInputs} 项`,
+    '',
+    '',
+    chain.complete ? '完整' : `缺 ${chain.missingCount} 项`
+  ])
+  if (chain.complete) {
+    rows.push([
+      '概览',
+      '净利润',
+      '净利润 = 利润总额 − 应纳所得税额',
+      moneyCell(chain.netProfit),
+      '元',
+      chain.hasLoss ? '已计算（本期亏损）' : '已计算'
+    ])
+  } else {
+    rows.push(['概览', '净利润', `还需补：${chain.missingInputs.join('、')}`, '', '元', '待补数据'])
+  }
+
+  for (const item of PROFIT_INPUTS) {
+    const isFilled = filled.has(item.id)
+    rows.push([
+      '输入项',
+      item.label,
+      item.hint || '',
+      isFilled ? moneyCell(values[item.id]) : '',
+      item.unit || '元',
+      isFilled ? '已填' : '未填'
+    ])
+  }
+
+  for (const step of chain.steps) {
+    if (step.status === 'ok') {
+      rows.push(['计算', step.label, step.expression, moneyCell(step.value), '元', '已计算'])
+    } else {
+      rows.push(['计算', step.label, step.expression, '', '元', `待补：${step.missing.join('、')}`])
+    }
+  }
+
+  for (const item of equations.checks) {
+    if (item.status === 'incomplete') {
+      rows.push(['恒等式校验', item.label, `还缺：${item.missing.join('、')}`, '', '', '待补数据'])
+    } else {
+      rows.push([
+        '恒等式校验',
+        item.label,
+        `左边 ${moneyCell(item.left)} · 右边 ${moneyCell(item.right)} · 差额 ${moneyCell(item.difference)}`,
+        moneyCell(item.difference),
+        '元',
+        item.status === 'ok' ? '平衡' : '不平衡'
+      ])
+    }
+  }
+
+  rows.push([
+    '说明',
+    '口径提示',
+    '本表按《利润的内容》口径排列：投资净收益在利润总额层级加总，不计入营业利润。现行《企业会计准则》将投资收益计入营业利润，两者结果不同，请按企业实际会计政策取用。',
+    '',
+    '',
+    '备注'
+  ])
+
+  return {
+    headers: PROFIT_EXPORT_HEADERS,
+    rows,
+    complete: chain.complete,
+    missingCount: chain.missingCount,
+    netProfit: chain.netProfit,
+    hasLoss: chain.hasLoss === true
+  }
 }

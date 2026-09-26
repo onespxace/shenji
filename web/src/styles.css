@@ -132,9 +132,21 @@ a:hover { color: var(--blue-dark); }
 .brand-copy { display: flex; min-width: 0; flex-direction: column; }
 .brand-name { color: var(--ink-950); font-size: 1rem; font-weight: 750; letter-spacing: .01em; white-space: nowrap; }
 .brand-caption { margin-top: 1px; color: var(--ink-400); font-size: 0.75rem; letter-spacing: .04em; white-space: nowrap; }
-.top-nav { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 4px; overflow-x: auto; scrollbar-width: none; }
-.top-nav::-webkit-scrollbar { display: none; }
-.top-nav-item { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; padding: 9px 12px; border: 1px solid transparent; border-radius: 11px; color: var(--ink-600); background: transparent; font-size: 0.9375rem; font-weight: 600; white-space: nowrap; transition: all .2s ease; }
+/* 桌面端导航：靠分组把 7 项压成 5 项 + 「更多」，因此不再需要横向滚动。
+   overflow 用 hidden 而非 auto 是刻意的：万一将来又超宽，
+   宁可裁掉，也不给用户一个看不见滚动条的滚动区域——
+   那正是 1024/1280 下「设置」消失的原因。 */
+.top-nav { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 4px; overflow: hidden; }
+.top-nav-more { border: 1px solid transparent; background: transparent; cursor: pointer; font: inherit; }
+.top-nav-more:hover { border-color: var(--line); color: var(--ink-900); background: rgba(255,255,255,.58); }
+.top-nav-more.is-active { border-color: rgba(47,111,228,.18); color: var(--blue-dark); background: linear-gradient(135deg, rgba(234,242,255,.95), rgba(255,255,255,.66)); }
+/* line-height 必须显式写：普通按钮从 body 继承 --lh-body(1.65)，
+   而「更多」按钮被 Element Plus 的 .el-dropdown 包住，该容器自带 line-height: 1，
+   按钮会继承到 1 —— 结果同一个导航里两种高度（实测 42px vs 35px）。
+   写死在这里就不再依赖任何祖先的 line-height。 */
+.top-nav-item { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; padding: 9px 12px; border: 1px solid transparent; border-radius: 11px; color: var(--ink-600); background: transparent; font-size: 0.9375rem; font-weight: 600; line-height: var(--lh-body); white-space: nowrap; transition: all .2s ease; }
+/* 下拉触发器包了一层 div，要让它作为 flex 项与相邻按钮基线一致 */
+.top-nav > .el-dropdown { display: flex; align-items: center; }
 .top-nav-item:hover { border-color: var(--line); color: var(--ink-900); background: rgba(255,255,255,.58); }
 .top-nav-item.is-active { border-color: rgba(47,111,228,.18); color: var(--blue-dark); background: linear-gradient(135deg, rgba(234,242,255,.95), rgba(255,255,255,.66)); box-shadow: 0 5px 14px rgba(47,111,228,.1), inset 0 1px 0 rgba(255,255,255,.8); }
 .top-nav-item .el-icon { font-size: 1.125rem; }
@@ -355,10 +367,30 @@ a:hover { color: var(--blue-dark); }
 .more-sheet-copy strong { color: var(--ink-900); font-size: var(--fs-lead); font-weight: 680; }
 .more-sheet-copy em { margin-top: 1px; color: var(--ink-500); font-size: var(--fs-caption); font-style: normal; }
 
+/* 1280 及以下：把导航收紧提前一档。
+   断点来自实测——7 项平铺时 .top-nav 需要 635px，
+   而 1024 视口只有 557px、1280 只有 680px。
+
+   顺序很要紧：这段必须排在 1120 断点之前。821~1120 区间两个查询同时命中，
+   同等特异性下后写的胜出——曾经把 1280 放在文件末尾，结果它在 1000px 处
+   覆盖掉 1120 的收紧（min-width 150px 压回 0、padding 8px 9px 压回 7px 8px），
+   导航末尾项被 overflow:hidden 裁掉且点不到。窄断点必须写在宽断点之后。 */
+@media (max-width: 1280px) {
+  .topbar-inner { gap: 14px; }
+  .brand-button { min-width: 150px; }
+  .top-nav-item { padding: 8px 9px; gap: 6px; }
+  .workspace-status { display: none; }
+}
+
 @media (max-width: 1120px) {
   .topbar-inner { grid-template-columns: auto 1fr auto; gap: 10px; }
-  .brand-button { min-width: 165px; }
-  .top-nav-item { padding: 8px 9px; }
+  /* min-width 必须归零：文案藏起来之后按钮里只剩 44px 徽标，
+     但原来的 min-width: 165px 会让按钮照样占 165px —— 「隐藏文案」成了一条
+     白占 125px 的无效规则，导航因此在 821~1000px 区间被裁掉末尾项（实测缺 100px）。
+     .brand-copy 的 display:none 只有配合这里的 min-width: 0 才真正有意义。 */
+  .brand-button { min-width: 0; }
+  .brand-copy { display: none; }
+  .top-nav-item { padding: 7px 8px; gap: 5px; }
   .workspace-status { display: none; }
   .tool-layout, .docs-layout, .knowledge-layout { grid-template-columns: 215px minmax(0, 1fr); }
   .settings-layout { grid-template-columns: minmax(0, 1fr) 300px; }

@@ -50,9 +50,22 @@ npm run web:build
 npm run web:validate
 ```
 
+浏览器行为验证（需要先构建并起 preview，见 `docs/RELEASE_2.2.md`）：
+
+```powershell
+npm run web:probe
+```
+
 网页版设置页支持 DeepSeek、Gemini、Ollama 和自定义 OpenAI 兼容接口。DeepSeek 使用官方 `https://api.deepseek.com`，Gemini 使用官方 OpenAI Compatibility 地址 `https://generativelanguage.googleapis.com/v1beta/openai`；API Key 仅保存在浏览器本机。
 
 网页版 2.2 开发版新增“会计基础”页：89 个常用科目六大类识别、会计基础问答、本地中文 OCR 和凭证形式检查。凭证检查覆盖日期、编号、摘要、科目、借贷平衡、大写金额、附件张数和签名等 10 项形式要素，并单独列出 7 项不可由 OCR 判断的事项（签名真伪、涂改、附件真实性、审批合规、舞弊风险等）。
+
+网页版 2.2 正式版在“会计基础”页新增**利润计算**与**分录生成**：
+
+- 利润计算器只填最底层的收入、成本、费用和税率即可逐层推到净利润，并可**导出表格（CSV）**——导出内容含输入项、每一步计算过程、结果和恒等式校验，金额不带千分位，Excel 打开后可直接求和；
+- 分录生成支持一句话描述业务并**自动识别金额**（`30 万` / `1.5万元` / `￥300,000.00`），每一行科目可单独填金额，配不平可一键「自动补差额」；匹配到多个业务时会明确提示并列而不是替你选。
+
+版本状态与验收清单见 `docs/RELEASE_2.2.md`；改动根因与踩坑记录见 `docs/HANDOVER.md`。
 
 ### 桌面版开发运行
 

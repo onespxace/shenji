@@ -67,9 +67,22 @@ function fmt(n, d) {
   if (!isFinite(n)) return "-";
   return Number(n).toLocaleString("zh-CN", { maximumFractionDigits: d === undefined ? 2 : d });
 }
+/* 单元格转义：
+   1) 含逗号 / 引号 / 换行（含 \r）时整体加引号；
+   2) 以 = + - @ 开头会被 Excel 当公式执行（CSV 注入），加 ' 前缀中和；
+   3) 但 "-1234.00" 是合法负数，不能被误加前缀变成文本，否则导出的金额列算不了。
+   详见 src/lib/csv-export.js 的同一套口径与断言。 */
+function csvCell(v) {
+  const NUMERIC = /^-?\d+(\.\d+)?$/;
+  if (typeof v === "number") return isFinite(v) ? String(v) : "";
+  let s = String(v === undefined || v === null ? "" : v);
+  const head = s.replace(/^[\s\u0000-\u001f]+/, "")[0];
+  const risky = head === "=" || head === "+" || head === "@" || (head === "-" && !NUMERIC.test(s.trim()));
+  if (risky) s = "'" + s;
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
 function downloadCSV(filename, headers, rows) {
-  const esc = v => { v = String(v === undefined ? "" : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-  const csv = "﻿" + headers.map(esc).join(",") + "\n" + rows.map(r => r.map(esc).join(",")).join("\n");
+  const csv = "\uFEFF" + headers.map(csvCell).join(",") + "\r\n" + rows.map(r => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);

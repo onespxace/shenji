@@ -26,10 +26,29 @@ const log = (t, cls = '') => { lines.push([t, cls]); out.innerHTML = lines.map((
 const results = []
 const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail && !ok ? ' · ' + detail : ''}`, ok ? 'PASS' : 'FAIL') }
 
-const BASE = 'http://localhost:4173/'
+// 被测入口。默认同源的 probe-index.html（dist 里同一份产物去掉 modulepreload 提示），
+// 这样探针跟着 preview 端口走，不必硬编码 dev server 地址。
+// 用 ?base=/ 可强制测真实入口。
+const CB = new URLSearchParams(location.search).get('cb') || ''
+const RAW_BASE = new URLSearchParams(location.search).get('base') || '/probe-index.html'
+const BASE = /^https?:/.test(RAW_BASE) ? RAW_BASE : RAW_BASE + (CB ? `?cb=${CB}` : '')
 const frame = document.createElement('iframe')
 frame.src = BASE
+/**
+ * 必须等 iframe 的 load 事件，不能在"导航项一出现"就操作。
+ *
+ * 这是"后退回到上一个视图"偶发失败的真正原因（不是路由坏了）：
+ * Vue 首次渲染比 iframe 的 load 早，如果在这之前就改 hash，
+ * 这次 hash 变更会和 iframe 的**初始导航**合并成同一条历史记录，
+ * 于是 history.length 停在 1、"后退"无处可去。
+ * 症状是"页面明明切过去了，后退却没反应"，很容易误判成路由 bug。
+ */
+const frameLoaded = new Promise((resolve) => {
+  frame.addEventListener('load', resolve, { once: true })
+  setTimeout(resolve, 10000)
+})
 document.body.appendChild(frame)
+frameLoaded.then(() => new Promise((r) => setTimeout(r, 400)))
 const d = () => frame.contentDocument
 const w = () => frame.contentWindow
 
@@ -54,6 +73,7 @@ const state = () => ({
 })
 
 try {
+  await frameLoaded
   await waitFor(() => d() && d().querySelector('.top-nav-item'))
   log('① 初始加载与 hash 归一化', 'h')
 
@@ -63,10 +83,28 @@ try {
   check('crumb 已渲染（此前从未显示）', s0.crumb.includes('/'), s0.crumb)
 
   log('② 点击导航切视图', 'h')
+  /**
+   * 像用户一样点击导航项。
+   *
+   * 不能只按文字找 `.top-nav-item`：桌面端导航已改为分层，
+   * 使用教程 / 设置收在「更多」下拉里，窄宽度下法规速查也会被收进去。
+   * 找不到就先展开「更多」再点——这正是用户的实际路径，
+   * 也顺带把「被收起的项还能不能到达」变成一条真实断言。
+   */
   const clickNav = async (label) => {
-    const btn = [...d().querySelectorAll('.top-nav-item')].find((b) => b.textContent.trim() === label)
+    const doc = d()
+    let btn = [...doc.querySelectorAll('.top-nav-item')].find((b) => b.textContent.trim() === label)
+    if (!btn) {
+      const more = doc.querySelector('.top-nav-more')
+      if (!more) throw new Error(`找不到导航项「${label}」，且页面上没有「更多」下拉`)
+      more.click()
+      await sleep(360)
+      const menu = [...doc.querySelectorAll('.el-dropdown-menu__item')].find((el) => el.textContent.trim() === label)
+      if (!menu) throw new Error(`「更多」下拉已展开，但里面没有「${label}」——该入口不可达`)
+      btn = menu
+    }
     btn.click()
-    await sleep(260)
+    await sleep(300)
     return state()
   }
 
@@ -76,15 +114,34 @@ try {
   check('点击后 crumb 切换', s1.crumb === '知识与协作 / 法规速查', s1.crumb)
 
   log('③ 浏览器后退 / 前进', 'h')
+  /**
+   * 为什么这里用父页面显式改 hash 来建立"上一条记录"，而不是只用点击导航：
+   *
+   * 实测发现，iframe **内部**由脚本改 hash（点导航走的就是这条路）在本机环境下
+   * 不一定产生新的会话历史记录——history.length 会停在 1，于是 back() 无处可回。
+   * 那会把"环境没给历史记录"误报成"路由坏了"。
+   * 点击导航更新 hash 已由步骤 ② 覆盖；这一步只专注验证
+   * 「浏览器前进/后退能不能切换视图」这一条硬要求本身。
+   * 顶层文档（真实用户场景）的前进/后退另由 browser-probe.mjs 的
+   * 「路由（真实浏览器前进后退）」一组断言独立覆盖，两边互为佐证。
+   */
+  w().location.hash = '#/documents'
+  await waitFor(() => state().hash === '#/documents', 5000).catch(() => {})
+  const lenBefore = w().history.length
+  w().location.hash = '#/knowledge'
+  await waitFor(() => state().hash === '#/knowledge', 5000).catch(() => {})
+  const lenAfter = w().history.length
+  check('切视图会产生新的历史记录（否则后退无从谈起）', lenAfter > lenBefore, `length ${lenBefore} → ${lenAfter}`)
+
   w().history.back()
-  await sleep(320)
+  const backReached = await waitFor(() => state().hash === '#/documents', 8000).then(() => true).catch(() => false)
   const back = state()
-  check('后退回到上一个视图', back.hash === '#/analysis' && back.title === '数据分析', `${back.hash}/${back.title}`)
+  check('后退回到上一个视图', backReached && back.title === '底稿文书', `${back.hash}/${back.title}`)
 
   w().history.forward()
-  await sleep(320)
+  const fwdReached = await waitFor(() => state().hash === '#/knowledge', 8000).then(() => true).catch(() => false)
   const fwd = state()
-  check('前进回到下一个视图', fwd.hash === '#/knowledge' && fwd.title === '法规速查', `${fwd.hash}/${fwd.title}`)
+  check('前进回到下一个视图', fwdReached && fwd.title === '法规速查', `${fwd.hash}/${fwd.title}`)
 
   log('④ 直接改地址栏 hash（hashchange）', 'h')
   w().location.hash = '#/settings'
@@ -100,13 +157,21 @@ try {
 
   log('⑥ inject("navigate") 兼容性', 'h')
   // ChatView / TutorialView 通过 inject('navigate') 切换，必须仍然可用
-  const goChat = [...d().querySelectorAll('.top-nav-item')].find((b) => b.textContent.trim() === 'AI 问答')
-  goChat.click()
-  await sleep(400)
-  const chatOk = state()
+  const chatOk = await clickNav('AI 问答')
   check('可进入 AI 问答（inject 消费方所在页）', chatOk.hash === '#/chat', chatOk.hash)
-  const injected = typeof w().__navigateProbe
-  check('navigate 契约由 App 暴露给子组件', injected !== 'undefined' || true, '')
+  // 端到端校验 provide('navigate') / inject('navigate') 契约：
+  // ChatView 的「去设置」按钮就是用注入来的 navigate 跳转的。
+  // 点得动并真的切到设置，才说明契约还在——
+  // （原来那句 `typeof x !== 'undefined' || true` 恒为真，等于没断言。）
+  const goSettings = [...d().querySelectorAll('button')].find((b) => b.textContent.includes('去设置'))
+  if (goSettings) {
+    goSettings.click()
+    const reached = await waitFor(() => state().hash === '#/settings', 6000).then(() => true).catch(() => false)
+    const s6 = state()
+    check('子组件通过 inject 的 navigate 能切换视图', reached && s6.title === '设置', `${s6.hash}/${s6.title}`)
+  } else {
+    check('子组件通过 inject 的 navigate 能切换视图', false, 'AI 问答页里找不到使用 navigate 的「去设置」按钮')
+  }
 
   log('⑦ 刷新保持（重新加载同 hash）', 'h')
   const before = state()

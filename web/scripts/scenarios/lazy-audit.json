@@ -1,0 +1,15 @@
+{
+  "settleMs": 3000,
+  "views": [
+    {
+      "name": "懒加载与状态保活",
+      "route": "http://localhost:4288/lazy-audit.html?cb=lazy1",
+      "steps": [
+        {
+          "label": "首屏零重资源 + 按需加载 + KeepAlive + 不重复请求",
+          "run": "for(let i=0;i<60 && !window.__lazyAudit;i++){ await new Promise(r=>setTimeout(r,1000)) } if(!window.__lazyAudit){ const el=document.querySelector('#out'); return { ok:false, detail:'30 秒内未产出结果：'+((el&&el.innerText)||'').replace(/\\n+/g,' | ').slice(0,400) } } const r=window.__lazyAudit; const fails=(r.results||[]).filter(x=>!x.ok).map(x=>x.name+'('+(x.detail||'')+')'); return { ok: r.passed===r.total && r.total>0, detail: r.passed+'/'+r.total+(fails.length?' 失败：'+fails.join('；'):'') }"
+        }
+      ]
+    }
+  ]
+}

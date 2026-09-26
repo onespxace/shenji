@@ -1,0 +1,184 @@
+{
+  "settleMs": 2600,
+  "views": [
+    {
+      "name": "工作台 · 数据分析",
+      "route": "#/analysis",
+      "steps": [
+        {
+          "label": "页面挂载并渲染标题",
+          "run": "const t = document.body.innerText; return { ok: t.includes('数据分析') && document.querySelector('#app')?.children.length > 0, detail: '未渲染' }"
+        },
+        {
+          "label": "载入示例台账后出现文件摘要与参数表单",
+          "run": "const ok0 = await __btn('载入示例台账'); if(!ok0) return {ok:false,detail:'找不到载入示例按钮'}; await new Promise(r=>setTimeout(r,900)); return { ok: !!document.querySelector('.file-summary') && !!__text('button','执行分析'), detail: 'summary='+!!document.querySelector('.file-summary') }"
+        },
+        {
+          "label": "执行分析产生结果表或指标卡",
+          "run": "const ok0 = await __btn('执行分析'); if(!ok0) return {ok:false,detail:'找不到执行分析按钮'}; await new Promise(r=>setTimeout(r,1200)); const rows=document.querySelectorAll('.data-table tbody tr').length; const metrics=document.querySelectorAll('.metric-box').length; const t=document.body.innerText; return { ok: rows>0 || metrics>0, detail: 'rows='+rows+' metrics='+metrics+' error='+t.includes('失败') }"
+        }
+      ]
+    },
+    {
+      "name": "会计基础 · 科目分类识别",
+      "route": "#/accounting",
+      "steps": [
+        {
+          "label": "页面挂载",
+          "run": "return { ok: document.body.innerText.includes('常用科目'), detail: '未渲染科目区' }"
+        },
+        {
+          "label": "识别「库存现金」返回结果",
+          "run": "const i=__inputByPh('输入六类中的任意科目'); if(!i) return {ok:false,detail:'无输入框'}; __set(i,'库存现金'); await new Promise(r=>setTimeout(r,200)); await __btn('识别分类'); return { ok: document.body.innerText.includes('资产') && !!document.querySelector('.classification-result'), detail: '未出现分类结果' }"
+        }
+      ]
+    },
+    {
+      "name": "会计基础 · 凭证完整性检查",
+      "route": "#/accounting",
+      "steps": [
+        {
+          "label": "切到凭证页并载入完整样例后检查",
+          "run": "if(!await __tab('凭证完整性检查')) return {ok:false,detail:'无凭证标签'}; if(!await __btn('载入完整样例')) return {ok:false,detail:'无样例按钮'}; await __btn('检查凭证'); return { ok: document.body.innerText.includes('形式检查结果'), detail: '未出现检查结果' }"
+        }
+      ]
+    },
+    {
+      "name": "会计基础 · 基础问答",
+      "route": "#/accounting",
+      "steps": [
+        {
+          "label": "提问「会计六要素是什么？」",
+          "run": "if(!await __tab('基础问答')) return {ok:false,detail:'无问答标签'}; const chip=__text('.model-chip','六要素'); if(!chip) return {ok:false,detail:'无快捷问题'}; chip.click(); await new Promise(r=>setTimeout(r,500)); return { ok: !!document.querySelector('.answer-card'), detail: '未出现回答' }"
+        }
+      ]
+    },
+    {
+      "name": "会计基础 · 利润计算",
+      "route": "#/accounting",
+      "steps": [
+        {
+          "label": "示例算出净利润 1,032,300.00",
+          "run": "if(!await __tab('利润计算')) return {ok:false,detail:'无利润标签'}; const box=document.querySelector('.net-profit-box'); if(!box) return {ok:false,detail:'无净利润框'}; return { ok: box.innerText.includes('1,032,300.00'), detail: '净利润显示为 '+box.innerText.replace(/\\s+/g,' ') }"
+        },
+        {
+          "label": "8 条计算步骤且无待补",
+          "run": "const steps=document.querySelectorAll('.formula-step'); const pending=document.querySelectorAll('.formula-step.incomplete'); return { ok: steps.length===8 && pending.length===0, detail: 'steps='+steps.length+' pending='+pending.length }"
+        },
+        {
+          "label": "清空后不显示假结果并全部标为待补",
+          "run": "if(!await __btn('清空')) return {ok:false,detail:'无清空按钮'}; const box=document.querySelector('.net-profit-box'); const steps=document.querySelectorAll('.formula-step'); const pending=document.querySelectorAll('.formula-step.incomplete'); return { ok: !box && steps.length===8 && pending.length===8, detail: 'box='+!!box+' steps='+steps.length+' pending='+pending.length }"
+        },
+        {
+          "label": "缺项计数等于未填输入项数（12）而非 20",
+          "run": "const t=document.body.innerText; const m=t.match(/缺\\s*(\\d+)\\s*项/); return { ok: !!m && Number(m[1])===12, detail: '页面显示: '+(m?m[0]:'未找到缺项标签') }"
+        },
+        {
+          "label": "会计恒等式不平衡时给出差额",
+          "run": "const inputs=[...document.querySelectorAll('.element-inputs input')]; if(inputs.length<3) return {ok:false,detail:'无恒等式输入框'}; ['1000','300','600'].forEach((v,i)=>__set(inputs[i],v)); await new Promise(r=>setTimeout(r,500)); const t=document.body.innerText; return { ok: t.includes('不平衡'), detail: '未判不平衡' }"
+        },
+        {
+          "label": "导出表格：真实下载并校验内容",
+          "download": true,
+          "expectFilePrefix": "利润计算表-",
+          "expectContains": ["类别,项目,说明,数值,单位,状态", "净利润", "1032300.00", "主营业务收入", "恒等式校验", "投资净收益"],
+          "run": "if(!await __btn('载入示例')) return {ok:false,detail:'无法恢复示例'}; const b=__text('button','导出表格'); if(!b) return {ok:false,detail:'没有导出表格按钮'}; b.click(); await new Promise(r=>setTimeout(r,600)); return { ok:true }"
+        }
+      ]
+    },
+    {
+      "name": "会计基础 · 分录生成",
+      "route": "#/accounting",
+      "steps": [
+        {
+          "label": "匹配「收到股东投资款 300000」",
+          "run": "if(!await __tab('分录生成')) return {ok:false,detail:'无分录标签'}; const i=__inputByPh('例如：收到股东投资款'); if(!i) return {ok:false,detail:'无业务输入框'}; __set(i,'收到股东投资款 300000'); await new Promise(r=>setTimeout(r,200)); if(!await __btn('生成分录')) return {ok:false,detail:'无生成按钮'}; const t=document.body.innerText; return { ok: t.includes('接受现金资产投资'), detail: '未匹配到投资规则' }"
+        },
+        {
+          "label": "金额自动识别并回填业务金额框",
+          "run": "const amt=document.querySelector('.entry-quick input'); const val=amt?amt.value:''; return { ok: String(val).replace(/[,\\s]/g,'')==='300000', detail: '金额框='+val }"
+        },
+        {
+          "label": "自动配平为借贷各 300,000.00",
+          "run": "const t=document.body.innerText; const bal=document.querySelector('.entry-balance'); const txt=bal?bal.innerText.replace(/\\s+/g,' '):''; const n=(txt.match(/300,000\\.00/g)||[]).length; return { ok: t.includes('已配平') && n>=2, detail: '状态/合计='+txt }"
+        },
+        {
+          "label": "清空金额后回到「未填金额」而不是谎称已配平",
+          "run": "if(!await __btn('清空金额')) return {ok:false,detail:'无清空金额按钮'}; const t=document.body.innerText; return { ok: t.includes('未填金额'), detail: '未见未填金额状态' }"
+        },
+        {
+          "label": "「收到货款」唯一命中收回应收账款（不再和确认收入并列）",
+          "run": "const i=__inputByPh('例如：收到股东投资款'); __set(i,'收到货款'); await new Promise(r=>setTimeout(r,200)); await __btn('生成分录'); const hits=[...document.querySelectorAll('.entry-hit')].map(e=>e.innerText.replace(/\\s+/g,' ')); const amb=document.querySelector('.ambiguous-note'); return { ok: hits.length===1 && hits[0].includes('应收账款收回') && !amb, detail: '命中=' + hits.join(' / ') + ' 歧义提示=' + !!amb }"
+        },
+        {
+          "label": "只输入科目名（原材料）时给出并列提示而不是替你选",
+          "run": "const i=__inputByPh('例如：收到股东投资款'); __set(i,'原材料'); await new Promise(r=>setTimeout(r,200)); await __btn('生成分录'); const amb=document.querySelector('.ambiguous-note'); const hits=[...document.querySelectorAll('.entry-hit')].length; return { ok: !!amb && hits>=2, detail: '提示='+!!amb+' 命中='+hits }"
+        },
+        {
+          "label": "互斥组内改选不会变成多选一报错",
+          "run": "const i=__inputByPh('例如：收到股东投资款'); __set(i,'计提坏账准备'); await new Promise(r=>setTimeout(r,200)); await __btn('生成分录'); await new Promise(r=>setTimeout(r,300)); const boxes=[...document.querySelectorAll('.pick-row')]; return { ok: boxes.length>0 && !document.querySelector('.entry-issues'), detail: 'pick 行='+boxes.length }"
+        },
+        {
+          "label": "导出分录：真实下载并校验内容",
+          "download": true,
+          "expectFilePrefix": "会计分录-",
+          "expectContains": ["业务,序号,方向,科目代码,科目名称,明细科目,金额(元),摘要/说明", "应收账款收回", "50000.00", "借贷平衡"],
+          "run": "const i=__inputByPh('例如：收到股东投资款'); __set(i,'应收账款收回 50000'); await new Promise(r=>setTimeout(r,200)); await __btn('生成分录'); const b=__text('button','导出表格'); if(!b) return {ok:false,detail:'没有导出表格按钮'}; b.click(); await new Promise(r=>setTimeout(r,600)); return { ok:true }"
+        }
+      ]
+    },
+    {
+      "name": "路由（真实浏览器前进后退）",
+      "route": "#/analysis",
+      "steps": [
+        {
+          "label": "hash 前进/后退/再前进都生效",
+          "run": "const start=location.hash; location.hash='#/knowledge'; await new Promise(r=>setTimeout(r,800)); const push=location.hash; const len=history.length; history.back(); await new Promise(r=>setTimeout(r,1500)); const back=location.hash; history.forward(); await new Promise(r=>setTimeout(r,1500)); const fwd=location.hash; return { ok: push==='#/knowledge' && back==='#/analysis' && fwd==='#/knowledge', detail: 'start='+start+' push='+push+' back='+back+' fwd='+fwd+' history.length='+len }"
+        },
+        {
+          "label": "非法 hash 不清空界面",
+          "run": "location.hash='#/不存在的视图'; await new Promise(r=>setTimeout(r,700)); const t=document.body.innerText; return { ok: t.includes('数据分析') || t.includes('利润率'), detail: '非法 hash 后页面文本长度='+t.length }"
+        }
+      ]
+    },
+    {
+      "name": "底稿文书",
+      "route": "#/documents",
+      "steps": [
+        { "label": "页面挂载", "run": "return { ok: document.body.innerText.includes('底稿'), detail: '未渲染' }" },
+        {
+          "label": "存货盘点差异不出现浮点尾巴（0.3−0.1 应为 -0.20）",
+          "run": "const t=__text('.template-option','存货监盘表'); if(!t) return {ok:false,detail:'无盘点模板'}; t.click(); await new Promise(r=>setTimeout(r,500)); const row=document.querySelector('.el-table__body-wrapper tbody tr, .el-table tbody tr'); if(!row) return {ok:false,detail:'无盘点行'}; const ins=row.querySelectorAll('input'); if(ins.length<3) return {ok:false,detail:'盘点行输入框不足'}; __set(ins[1],'0.3'); await new Promise(r=>setTimeout(r,150)); __set(ins[2],'0.1'); await new Promise(r=>setTimeout(r,250)); const cells=[...row.querySelectorAll('td')].map(td=>td.textContent.trim()); return { ok: cells.includes('-0.20'), detail: '差异单元格='+JSON.stringify(cells) }"
+        }
+      ]
+    },
+    {
+      "name": "法规速查",
+      "route": "#/knowledge",
+      "steps": [
+        { "label": "页面挂载", "run": "return { ok: document.querySelectorAll('.el-collapse-item, .surface').length > 0, detail: '未渲染' }" }
+      ]
+    },
+    {
+      "name": "AI 问答",
+      "route": "#/chat",
+      "steps": [
+        { "label": "页面挂载", "run": "return { ok: document.body.innerText.includes('AI') || document.body.innerText.includes('问答'), detail: '未渲染' }" }
+      ]
+    },
+    {
+      "name": "使用教程",
+      "route": "#/tutorial",
+      "steps": [
+        { "label": "页面挂载", "run": "return { ok: document.body.innerText.includes('教程') || document.body.innerText.includes('用例'), detail: '未渲染' }" }
+      ]
+    },
+    {
+      "name": "设置",
+      "route": "#/settings",
+      "steps": [
+        { "label": "页面挂载", "run": "return { ok: document.querySelectorAll('input, .el-select').length > 0, detail: '未渲染表单' }" }
+      ]
+    }
+  ]
+}

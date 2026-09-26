@@ -50,7 +50,8 @@ function todayText() {
 function signRow(inventory) {
   const actual = Number(String(inventory.actual || '').replace(/,/g, '')) || 0
   const book = Number(String(inventory.book || '').replace(/,/g, '')) || 0
-  inventory.difference = String(actual - book)
+  // 先舍入到分再转字符串：直接用 a-b 会出现 0.30000000000000004 这类结果
+  inventory.difference = (Math.round((actual - book) * 100) / 100).toFixed(2)
 }
 function addInventoryRow() { form.inventoryRows.push(blankInventoryRow()) }
 function removeInventoryRow(index) { if (form.inventoryRows.length > 1) form.inventoryRows.splice(index, 1) }

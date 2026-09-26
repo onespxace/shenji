@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>懒加载与状态保活验证（开发用，不进构建产物）</title>
+<style>
+  body { margin: 0; padding: 18px; background: #f6f8fb; font: 14px/1.7 "Microsoft YaHei", sans-serif; color: #1f2937; }
+  h1 { font-size: 1.1rem; margin: 0 0 12px; }
+  #out div { font: 13px/1.7 ui-monospace, monospace; }
+  .PASS { color: #047857; } .FAIL { color: #b91c1c; } .h { font-weight: 700; margin-top: 10px; }
+  iframe { width: 1280px; height: 600px; border: 1px solid #cbd5e1; border-radius: 8px; }
+</style>
+</head>
+<body>
+<h1>懒加载与状态保活验证</h1>
+<div id="out">等待…</div>
+<script type="module">
+// 验证 Phase 3 的四个关键点，都只能在真实浏览器里证明：
+//   1. 首屏不请求任何 OCR / AI 重资源
+//   2. 访问某页才拉它的 chunk
+//   3. KeepAlive 真的保住页面状态（切走再切回，输入还在）
+//   4. 快速来回切换不会重复请求同一个 chunk
+//
+// 用法：
+//   dev  : node_modules 无生产构建，chunk 请求数受 HMR 干扰，第 4 条会误报
+//   prod : npm run build && npm run preview -- --port 4190，再跑 scripts/make-probe-entry.mjs
+//          并把本文件复制进 dist/
+// 默认同源相对路径，跟着 preview 端口走，不再硬编码 4180（端口一变就悄悄测错对象）。
+const CB = new URLSearchParams(location.search).get('cb') || ''
+const RAW_TARGET = new URLSearchParams(location.search).get('base') || '/probe-index.html'
+const TARGET = /^https?:/.test(RAW_TARGET) ? RAW_TARGET : RAW_TARGET + (CB ? `?cb=${CB}` : '')
+const out = document.getElementById('out')
+const lines = []
+const log = (t, cls = '') => { lines.push([t, cls]); out.innerHTML = lines.map(([x, c]) => `<div class="${c}">${x}</div>`).join('') }
+const results = []
+const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ' · ' + detail : ''}`, ok ? 'PASS' : 'FAIL') }
+
+const frame = document.createElement('iframe')
+document.body.appendChild(frame)
+const d = () => frame.contentDocument
+const w = () => frame.contentWindow
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const waitFor = (fn, ms = 20000) => new Promise((res, rej) => {
+  const t0 = Date.now()
+  const tick = () => { let v; try { v = fn() } catch { v = false }; if (v) return res(true); if (Date.now() - t0 > ms) return rej(new Error('timeout')); setTimeout(tick, 120) }
+  tick()
+})
+
+// 资源请求以 iframe 自己的 performance 条目为准。
+// 不要 hook fetch/XHR：Vite dev 下原生 import() 不走这两条路，会漏记。
+const res = () => w().performance.getEntriesByType('resource').map((e) => e.name)
+const heavy = (u) => /ort-wasm|ort\.bundle|worker-entry|onnx|\.tar$|\/dist-[A-Za-z0-9_-]+\.js|paddleocr/i.test(u)
+const heavyNow = () => res().filter(heavy)
+/**
+ * 像用户一样点击导航项，并处理"项被收进「更多」下拉"的情况。
+ *
+ * 为什么必须处理：导航按视口宽度分层，「设置 / 使用教程」等在窄宽度下会收进
+ * 「更多」。探针 iframe 只有 1280 宽，「设置」正好在其中——
+ * 只按 `.top-nav-item` 找会直接抛"找不到导航项：设置"，
+ * 于是第 ④ 条断言（同一 chunk 只请求一次）永远跑不到，
+ * 长期表现为"这条断言拿不到干净结果"，其实是找不到入口。
+ */
+const clickNav = async (label) => {
+  let btn = [...d().querySelectorAll('.top-nav-item')].find((x) => x.textContent.trim() === label)
+  if (!btn) {
+    const more = d().querySelector('.top-nav-more')
+    if (!more) throw new Error(`找不到导航项：${label}，且页面上没有「更多」下拉`)
+    more.click()
+    await sleep(420)
+    btn = [...d().querySelectorAll('.el-dropdown-menu__item')].find((x) => x.textContent.trim() === label)
+    if (!btn) throw new Error(`「更多」下拉已展开，但里面没有「${label}」——该入口不可达`)
+  }
+  btn.click()
+  await sleep(200)
+}
+
+try {
+  log('① 首屏加载（目标 ' + TARGET + '）', 'h')
+  frame.src = TARGET
+  await waitFor(() => d() && d().querySelector('.page-title'))
+  await sleep(1500)
+  check('首屏渲染出页面标题', (d().querySelector('.page-title')?.textContent.trim() || '') === '数据分析', d().querySelector('.page-title')?.textContent.trim())
+  const heavyFirst = heavyNow()
+  check('首屏未请求任何 OCR 重资源', heavyFirst.length === 0, heavyFirst.slice(0, 3).join(' | ') || '（0 个）')
+  check('首屏未加载会计基础 chunk', !res().some((u) => /AccountingView/.test(u)), '不应出现')
+  check('首屏未加载 AI 问答 chunk', !res().some((u) => /ChatView/.test(u)), '不应出现')
+
+  log('② 按需加载', 'h')
+  await clickNav('AI 问答')
+  await waitFor(() => d().querySelector('textarea'))
+  await sleep(700)
+  check('访问 AI 问答才拉 ChatView chunk', res().some((u) => /ChatView/.test(u)), '未出现')
+  check('访问 AI 问答不会顺带拉 OCR / 会计基础', heavyNow().length === 0 && !res().some((u) => /AccountingView/.test(u)), '不应出现')
+
+  log('③ 状态保活（KeepAlive）', 'h')
+  const Win = w()
+  const input = d().querySelector('textarea')
+  const setter = Object.getOwnPropertyDescriptor(Win.HTMLTextAreaElement.prototype, 'value').set
+  const InputEvent = Win.Event
+  setter.call(input, '保活探针-abc123')
+  input.dispatchEvent(new InputEvent('input', { bubbles: true }))
+  await sleep(300)
+  await clickNav('法规速查')
+  await sleep(500)
+  check('已切走（当前不是 AI 问答）', (d().querySelector('.page-title')?.textContent.trim() || '') === '法规速查', d().querySelector('.page-title')?.textContent.trim())
+  await clickNav('AI 问答')
+  await sleep(700)
+  const back = d().querySelector('textarea')
+  check('切回后输入内容仍在（KeepAlive 生效）', back && String(back.value).includes('保活探针-abc123'), back ? String(back.value).slice(0, 40) : '未找到输入框')
+
+  log('④ 重复访问不重复拉 chunk', 'h')
+  /**
+   * 这里只能数 .js，不能数 `/SettingsView/` 命中的全部条目。
+   *
+   * 一个视图会产出**两个**文件：SettingsView-xxx.js 和 SettingsView-xxx.css。
+   * 断言写成 `after <= 1` 时，CSS 被当成"第二次请求"，于是永远判失败——
+   * 这正是这条断言长期"跑不出干净结果"的真实原因，和懒加载本身无关。
+   */
+  const jsOnly = (list) => list.filter((u) => /\.js(\?|$)/.test(u))
+  const dupUrls = () => {
+    const seen = new Map()
+    for (const u of res()) seen.set(u, (seen.get(u) || 0) + 1)
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([u, n]) => `${u} ×${n}`)
+  }
+  const before = jsOnly(res().filter((u) => /SettingsView/.test(u))).length
+  await clickNav('设置')
+  await sleep(900)
+  await clickNav('会计基础')
+  await sleep(1300)
+  await clickNav('设置')
+  await sleep(900)
+  const after = jsOnly(res().filter((u) => /SettingsView/.test(u))).length
+  check('来回切换时同一 chunk 只请求一次', before === 0 && after === 1, `SettingsView.js 共请求 ${after} 次（切换前 ${before}）`)
+  check('进入会计基础确实拉了它的 chunk', jsOnly(res().filter((u) => /AccountingView/.test(u))).length >= 1, '应出现')
+  check('没有任何资源被重复请求', dupUrls().length === 0, dupUrls().join(' | '))
+
+  const passed = results.filter((r) => r.ok).length
+  log('', 'h')
+  log(`${passed}/${results.length} 个懒加载断言通过`, passed === results.length ? 'PASS' : 'FAIL')
+  document.title = passed === results.length ? 'LAZY-OK' : 'LAZY-FAIL'
+  window.__lazyAudit = { passed, total: results.length, results }
+} catch (error) {
+  log(`运行失败：${error.message}`, 'FAIL')
+  document.title = 'LAZY-ERROR'
+}
+</script>
+</body>
+</html>

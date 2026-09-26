@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<title>AuditDesk 桌面/移动断点审计（开发用，不进构建产物）</title>
+<title>AuditDesk 断点审计（开发用，不进构建产物）</title>
 <style>
   body { margin: 0; background: #1b2434; font-family: "Microsoft YaHei", sans-serif; color: #e6ecf7; }
   .row { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px; }
@@ -14,57 +14,68 @@
 <body>
 <div class="row" id="row"></div>
 <script>
-// 审计目标：顶部导航在 1024 / 1280 / 1440 / 1920 下是否完整可见、有无溢出或换行；
-// 移动端 390 / 430 / 560 / 768 / 820 下底部标签栏与栅格表现。
-// 用 iframe 固定宽度渲染，与真机一致；不用 CSS 缩放，避免测量失真。
-const SIZES = [
-  { w: 1024, h: 800,  label: '桌面 1024' },
-  { w: 1280, h: 860,  label: '桌面 1280' },
-  { w: 1440, h: 900,  label: '桌面 1440' },
-  { w: 1920, h: 1000, label: '桌面 1920' },
-  { w: 820,  h: 900,  label: '平板 820' },
-  { w: 768,  h: 900,  label: '平板 768' },
-  { w: 560,  h: 820,  label: '小屏 560' },
-  { w: 430,  h: 860,  label: '手机 430' },
-  { w: 390,  h: 780,  label: '手机 390' }
-]
+/**
+ * 桌面/移动断点审计。
+ *
+ * 用法：layout-audit.html?w=1024&h=800[&app=/probe-index.html]
+ * 一次只渲染一个指定宽度的 iframe，测量完由调用方换 w 重载。
+ *
+ * 为什么不做成「一次开 9 个 iframe 并排看」：
+ *   本机 harness 的浏览器网络层扛不住高并发。9 个 iframe 各拉 5~6 个资源，
+ *   峰值约 45 个并发请求，会稳定返回 502 / net::ERR_ABORTED —— 而同一页面里
+ *   用 fetch() 请求完全相同的 URL 则一律 200。也就是说失败来自环境而非产物，
+ *   但它会让测量结果随机缺项，结论不可复现。降到并发 1 之后数据才可信。
+ *
+ * 被测入口默认 probe-index.html：dist 里同一份产物去掉 modulepreload 预加载提示。
+ * 真实入口 dist/index.html 保留预加载（那是给用户加速的，不该为了迁就测试环境改产物）。
+ * 用 ?app=/ 可强制测真实入口。
+ */
+const params = new URLSearchParams(location.search)
+const W = Number(params.get('w') || 1024)
+const H = Number(params.get('h') || 800)
+// 探针页自身的 ?cb= 只让 layout-audit.html 绕过缓存；iframe 指向的入口页是另一个
+// URL，必须单独带同样的参数，否则会命中浏览器缓存里的旧入口页 —— 它引用的是上一次
+// 构建的 CSS 哈希，于是「改了样式却量到旧数值」。这个坑很隐蔽：数据自洽、不报错，
+// 只是完全不反映刚改的代码。
+const CB = params.get('cb') || ''
+const APP_SRC = (params.get('app') || '/probe-index.html') + (CB ? `?cb=${CB}` : '')
 
 const row = document.getElementById('row')
-const frames = []
-for (const size of SIZES) {
-  const box = document.createElement('div')
-  box.className = 'device'
-  const label = document.createElement('div')
-  label.className = 'device-label'
-  label.textContent = `${size.label} · ${size.w}px`
-  const frame = document.createElement('iframe')
-  frame.width = size.w
-  frame.height = size.h
-  frame.src = '/'
-  box.append(label, frame)
-  row.append(box)
-  frames.push({ frame, size })
-}
+const box = document.createElement('div')
+box.className = 'device'
+const label = document.createElement('div')
+label.className = 'device-label'
+label.textContent = `${W}×${H}`
+const frame = document.createElement('iframe')
+frame.width = W
+frame.height = H
+box.append(label, frame)
+row.append(box)
 
-// 关键测量：导航是否完整可见、是否换行、是否溢出、底部标签栏是否出现
-function measure(frame, size) {
+function measure(size) {
   const d = frame.contentDocument
-  const w = frame.contentWindow
-  if (!d || !d.body) return { size: size.label, error: 'not loaded' }
+  if (!d || !d.body) return { size, error: 'no document' }
   const nav = d.querySelector('.top-nav')
+  // 换行检测看 flex 容器的「直接子项」：Element Plus 的下拉触发器会多包一层 div，
+  // 直接取 .top-nav-item 会把同一行的按钮误判成两行（高度不同 → y 不同）。
+  // offsetTop 才是 flex 项真实所在行。
+  const flexItems = nav ? [...nav.children] : []
+  const navRows = [...new Set(flexItems.map((el) => el.offsetTop))]
   const items = [...d.querySelectorAll('.top-nav-item')]
-  const tabbar = d.querySelector('.app-tabbar')
-  const navRect = nav ? nav.getBoundingClientRect() : null
   const itemRects = items.map((el) => {
     const r = el.getBoundingClientRect()
-    return { label: el.textContent.trim(), x: Math.round(r.x), w: Math.round(r.width), y: Math.round(r.y) }
+    return { label: el.textContent.trim(), x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }
   })
-  // 换行检测：所有项 top 是否一致
-  const tops = [...new Set(itemRects.map((r) => r.y))]
+  const navRect = nav ? nav.getBoundingClientRect() : null
+  const tabbar = d.querySelector('.app-tabbar')
   const doc = d.documentElement
+  const brand = d.querySelector('.brand-button')
+  const actions = d.querySelector('.topbar-actions')
   return {
-    size: size.label,
+    size,
     vw: size.w,
+    // 诊断：区分「iframe 没加载好」与「加载了但导航不在」——两者结论完全不同
+    state: d.readyState === 'complete' ? (nav ? 'ready' : 'loaded-no-nav') : 'loading',
     navPresent: !!nav,
     navVisible: navRect ? getComputedStyle(nav).display !== 'none' : false,
     navScrollW: nav ? nav.scrollWidth : null,
@@ -72,26 +83,66 @@ function measure(frame, size) {
     navOverflowX: nav ? nav.scrollWidth > nav.clientWidth + 1 : null,
     navRight: navRect ? Math.round(navRect.right) : null,
     itemCount: items.length,
-    itemRows: tops.length,
-    wrapped: tops.length > 1,
+    itemRows: navRows.length,
+    wrapped: navRows.length > 1,
+    // 所有导航项是否等高：不等高说明某一项被祖先样式意外影响（如 line-height 继承）
+    itemHeights: [...new Set(itemRects.map((r) => r.h))].sort((a, b) => a - b),
     lastItemRight: itemRects.length ? Math.max(...itemRects.map((r) => r.x + r.w)) : null,
     lastItemLabel: itemRects.length ? itemRects[itemRects.length - 1].label : null,
-    // 顶栏右侧操作区是否被挤出
-    actionsRight: (() => { const a = d.querySelector('.topbar-actions'); return a ? Math.round(a.getBoundingClientRect().right) : null })(),
+    // 顶栏三段（品牌 / 导航 / 右侧操作）是否互相挤掉
+    brandRight: brand ? Math.round(brand.getBoundingClientRect().right) : null,
+    actionsRight: actions ? Math.round(actions.getBoundingClientRect().right) : null,
+    actionsLeft: actions ? Math.round(actions.getBoundingClientRect().left) : null,
+    navLeft: navRect ? Math.round(navRect.left) : null,
     tabbarVisible: tabbar ? getComputedStyle(tabbar).display !== 'none' : false,
     horizontalScroll: doc.scrollWidth > doc.clientWidth + 1 ? doc.scrollWidth : false,
-    bodyScrollW: doc.scrollWidth
+    bodyScrollW: doc.scrollWidth,
+    docClientW: doc.clientWidth
   }
 }
 
-window.__audit = () => frames.map(({ frame, size }) => measure(frame, size))
+/** 交互断言：桌面端「更多」下拉必须真的能打开、能跳转。只测几何不够——按钮被裁掉正是「看得到但点不到」的前身。 */
+window.__dropdown = async () => {
+  const d = frame.contentDocument
+  const w = frame.contentWindow
+  const trigger = d.querySelector('.top-nav-more')
+  if (!trigger) return { error: 'no trigger' }
+  const HTMLButton = w.HTMLButtonElement
+  const MouseEvent = w.MouseEvent
+  trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await new Promise((r) => setTimeout(r, 400))
+  const menu = [...d.querySelectorAll('.el-dropdown__popper')].find((el) => el.offsetParent !== null || getComputedStyle(el).display !== 'none')
+  const nodes = menu ? [...menu.querySelectorAll('.el-dropdown-menu__item')] : []
+  const items = nodes.map((el) => el.textContent.trim())
+  let navigated = null
+  if (nodes.length) {
+    const last = nodes[nodes.length - 1]
+    last.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await new Promise((r) => setTimeout(r, 700))
+    navigated = {
+      clicked: last.textContent.trim(),
+      hash: w.location.hash,
+      triggerActive: !!d.querySelector('.top-nav-more.is-active'),
+      crumb: (d.querySelector('.page-crumb') || {}).textContent || null
+    }
+  }
+  return { opened: !!menu, items, navigated, isButton: trigger instanceof HTMLButton }
+}
+
+window.__audit = () => measure({ w: W, h: H })
+
 window.__ready = new Promise((resolve) => {
   let n = 0
   const timer = setInterval(() => {
     n += 1
-    const all = frames.every(({ frame }) => frame.contentDocument && frame.contentDocument.querySelector('.top-nav'))
-    if (all || n > 60) { clearInterval(timer); resolve(frames.length) }
-  }, 250)
+    const d = frame.contentDocument
+    if ((d && d.readyState === 'complete' && d.querySelector('.top-nav')) || n > 60) {
+      clearInterval(timer)
+      resolve(n <= 60)
+    }
+  }, 200)
+  frame.addEventListener('load', () => { frame.src = APP_SRC }, { once: true })
+  frame.src = APP_SRC
 })
 </script>
 </body>

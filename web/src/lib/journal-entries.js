@@ -85,7 +85,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'cash-expense',
     group: '库存现金',
     title: '现金支出的核算',
-    keywords: ['现金支出', '现金支付', '用现金', '预借差旅费', '支付工资现金', '办公费用现金'],
+    keywords: ['现金支出', '现金支付', '支付现金', '用现金', '现金付款', '预借差旅费', '支付工资现金', '办公费用现金', '现金报销'],
     summary: '手里的现金花出去。',
     lines: [
       { side: D, code: '6602', sub: '', note: '办公费用' },
@@ -100,7 +100,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'bank-income',
     group: '银行存款',
     title: '银行存款收入',
-    keywords: ['银行存款收入', '存入现金', '收回应收账款', '银行收款', '货款到账'],
+    keywords: ['银行存款收入', '存入现金', '收回应收账款', '银行收款', '货款到账', '存入银行', '存进银行', '现金存入银行'],
     summary: '钱进银行账户。',
     lines: [
       { side: D, code: '1002', sub: '', note: '银行存款增加' },
@@ -115,7 +115,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'bank-expense',
     group: '银行存款',
     title: '银行存款支出',
-    keywords: ['银行存款支出', '提现', '银行付款', '购买材料付款', '办公费用银行'],
+    keywords: ['银行存款支出', '提现', '提取现金', '银行付款', '购买材料付款', '办公费用银行'],
     summary: '从银行账户付出去。',
     lines: [
       { side: D, code: '1001', sub: '', note: '提现' },
@@ -145,7 +145,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'material-issue',
     group: '原材料的核算',
     title: '发出原材料的账务处理',
-    keywords: ['发出原材料', '领用材料', '材料出库', '领料', '耗用材料'],
+    keywords: ['发出原材料', '领用材料', '领用原材料', '材料出库', '领料', '耗用材料'],
     summary: '材料按用途进不同成本费用科目。',
     lines: [
       { side: D, code: '5001', sub: '', note: '直接用于生产车间' },
@@ -234,7 +234,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'goods-revenue',
     group: '库存商品的核算',
     title: '确认销售收入',
-    keywords: ['确认收入', '销售收入', '卖出商品', '收到货款'],
+    keywords: ['确认收入', '销售收入', '卖出商品', '销售商品'],
     summary: '一手确认收入和销项税，一手结转成本。',
     lines: [
       { side: D, code: '1002', sub: '', note: '收到货款' },
@@ -261,7 +261,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'ar-collect',
     group: '应收账款的核算',
     title: '应收账款收回',
-    keywords: ['应收账款收回', '收回账款', '收到货款', '客户还款'],
+    keywords: ['应收账款收回', '收回账款', '收到货款', '客户还款', '货款收回', '收回欠款', '客户欠款'],
     summary: '债权变现。',
     lines: [
       { side: D, code: '1002', sub: '', note: '银行存款增加' },
@@ -296,7 +296,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'baddebt-actual',
     group: '坏账准备的核算',
     title: '实际发生坏账时',
-    keywords: ['实际发生坏账', '坏账核销', '确实收不回'],
+    keywords: ['实际发生坏账', '坏账核销', '核销坏账', '转销坏账', '确实收不回'],
     summary: '核销：准备与应收对冲。',
     lines: [
       { side: D, code: '1231', sub: '', note: '坏账准备减少' },
@@ -348,7 +348,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'note-interest-free-take',
     group: '应收票据的核算',
     title: '不带息应收票据的取得',
-    keywords: ['不带息应收票据', '票据取得', '收到票据', '出票'],
+    keywords: ['不带息应收票据', '票据取得', '收到票据', '出票', '商业承兑汇票', '银行承兑汇票', '应收票据'],
     summary: '按面值入账，同步确认收入和销项税。',
     lines: [
       { side: D, code: '1121', sub: '', note: '按面值入账' },
@@ -419,7 +419,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'prepay-receive',
     group: '预付账款的账务处理',
     title: '收到货物',
-    keywords: ['收到货物', '预付收到货', '预付账款核销'],
+    keywords: ['收到货物', '预付收到货', '预付收到货物', '预付的货物', '预付账款核销'],
     summary: '预付款转为存货，进项税额可抵扣。',
     lines: [
       { side: D, code: '1403', sub: '', note: '原材料等' },
@@ -551,7 +551,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'vat-small-sales',
     group: '应交增值税的账务处理',
     title: '小规模纳税人 · 销售开普通发票',
-    keywords: ['小规模销售', '小规模纳税人销售', '开普通发票', '含税售价'],
+    keywords: ['小规模销售', '小规模纳税人销售', '小规模纳税人开票', '小规模开票', '小规模纳税人', '开普通发票', '含税售价'],
     summary: '不含税收入 = 含税售价 ÷ (1 + 征收率)；应交增值税 = 不含税售价 × 征收率。',
     lines: [
       { side: D, code: '1002', sub: '', note: '银行存款等' },
@@ -578,7 +578,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'st-loan-interest',
     group: '短期借款的核算',
     title: '计提利息',
-    keywords: ['计提利息', '短期借款利息', '借款计息'],
+    keywords: ['计提利息', '计提借款利息', '短期借款利息', '借款利息', '借款计息'],
     summary: '按权责发生制确认利息费用。',
     lines: [
       { side: D, code: '6603', sub: '', note: '财务费用' },
@@ -641,7 +641,7 @@ export const JOURNAL_ENTRY_RULES = [
     id: 'invest-cash',
     group: '接受投资的核算',
     title: '接受现金资产投资',
-    keywords: ['接受投资', '现金投资', '股东投资', '实收资本', '增资'],
+    keywords: ['接受投资', '现金投资', '股东投资', '实收资本', '增资', '收到投资款'],
     summary: '有限责任公司记实收资本，股份有限公司记股本。',
     lines: [
       { side: D, code: '1002', sub: '', note: '银行存款增加' },
@@ -706,6 +706,11 @@ const ALT_GROUPS = {
   ],
   'bank-expense': [
     { label: '支出用途（三选一）', keys: ['1001|', '6602|', '1403|'] }
+  ],
+  // 现金支出同样是备查式：办公费 / 发工资 / 预借差旅费 三种用途只发生一种。
+  // 上一版漏标，界面会把三个借方全部预选上，一填金额就报"借贷不等"。
+  'cash-expense': [
+    { label: '现金用途（三选一）', keys: ['6602|', '2211|工资', '1221|'] }
   ],
   'material-purchase': [
     { label: '入库状态（二选一）', keys: ['1403|', '1402|'] },
@@ -787,12 +792,20 @@ export const JOURNAL_GROUPS = [
 
 /**
  * 按关键词匹配业务描述。
+ *
+ * 上一版的问题：`query.includes(keyword)` 完全不分语境，
+ * 于是"收到货款"同时命中"确认销售收入"和"收回应收账款"且得分相同，
+ * 谁的标题字典序靠前谁当第一名 —— 用户拿到的是一个随机结果。
+ * 现在：① 把容易混淆的词从错的规则里挪走；② 返回并列信息，由界面提示用户确认。
+ *
  * @param {string} text 例如"收到股东投资款 300000"或"计提坏账准备"
- * @returns {Array} 命中的规则，按匹配强度降序
+ * @param {{limit?: number}} [options]
+ * @returns {Array} 命中的规则，按匹配强度降序；每项含 {rule, score, matched, primary}
  */
-export function matchJournalRules(text) {
+export function matchJournalRules(text, options = {}) {
   const query = String(text || '').trim().toLowerCase()
   if (!query) return []
+  const limit = options.limit && options.limit > 0 ? options.limit : 8
   const hits = []
   for (const rule of JOURNAL_ENTRY_RULES) {
     let score = 0
@@ -806,7 +819,7 @@ export function matchJournalRules(text) {
         matched.push(keyword)
       }
     }
-    if (query.includes(rule.title.toLowerCase())) {
+    if (rule.title && query.includes(rule.title.toLowerCase())) {
       score += rule.title.length * 3
       matched.push(rule.title)
     }
@@ -814,97 +827,216 @@ export function matchJournalRules(text) {
       score += 4
       matched.push(rule.group)
     }
-    // 直接命中科目名也作为线索
+    // 直接命中科目名也作为线索。权重刻意压低：它只是"用户可能输入了科目名"的兜底，
+    // 给太大权重会让"领用原材料生产"这种描述和无关规则并列（曾造成假歧义）。
     for (const line of rule.lines) {
       const account = accountByCode.get(line.code)
       if (account && query.includes(account.name) && !matched.includes(account.name)) {
-        score += account.name.length
+        score += 2
         matched.push(account.name)
       }
     }
     if (score > 0) hits.push({ rule, score, matched })
   }
-  return hits.sort((a, b) => b.score - a.score || a.rule.title.localeCompare(b.rule.title))
+  hits.sort((a, b) => b.score - a.score || a.rule.title.localeCompare(b.rule.title))
+  const topScore = hits[0]?.score
+  const tied = hits.filter((hit) => hit.score === topScore).length
+  return hits.slice(0, limit).map((hit, index) => ({ ...hit, primary: index === 0 && tied === 1 }))
+}
+
+/** 最高分并列时说明这句话本身有歧义，界面必须让用户确认而不是替他决定 */
+export function isAmbiguous(hits) {
+  return hits.length > 1 && hits[0].score === hits[1].score
+}
+
+// ---------------- 从业务描述里提取金额 ----------------
+
+const CN_MULTIPLIER = { 亿: 100000000, 万: 10000, 千: 1000, 百: 100 }
+const AMOUNT_NOISE = /[,\s，￥¥$]/g
+
+/**
+ * 解析单个金额写法：'1,234.50' / '￥1234.5元' / '30万' / 1234.5。
+ * @returns {number|null}
+ */
+export function parseAmount(value) {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  const text = String(value).replace(AMOUNT_NOISE, '').replace(/元$/, '')
+  if (!text || text === '-' || text === '.') return null
+  const num = Number(text)
+  return Number.isFinite(num) ? num : null
+}
+
+/**
+ * 从自然语言里提取金额，支持"30 万""1.5万元""￥300,000.00"。
+ *
+ * 为什么值得做：用户说"收到股东投资款 300000"时，上一版只匹配了业务、
+ * 把 300000 丢掉，然后要用户在下拉里重新输一遍 —— 这是最容易被吐槽的体验点。
+ *
+ * 已知边界（不猜，交给用户确认）：
+ *  - 不解析中文大写/小写数字（"三十万"）；
+ *  - 句子里只有年份（如"2024 年"）时会被当成金额，界面会标注"自动识别，请确认"。
+ *
+ * @returns {{amount: number|null, raw: string, index: number}}
+ */
+export function extractAmount(text) {
+  const source = String(text ?? '')
+  if (!source.trim()) return { amount: null, raw: '', index: -1 }
+  const pattern = /([0-9][0-9,，]*)(?:\.([0-9]+))?\s*(亿|万|千|百)?\s*(?:元|圆|块)?/g
+  let best = null
+  let match
+  while ((match = pattern.exec(source)) !== null) {
+    const intPart = match[1].replace(/[,，]/g, '')
+    if (!/^[0-9]+$/.test(intPart)) continue
+    const decimals = match[2] ? match[2].replace(/[^0-9]/g, '') : ''
+    let value = Number(decimals ? `${intPart}.${decimals}` : intPart)
+    if (!Number.isFinite(value)) continue
+    const unit = match[3]
+    if (unit) value *= CN_MULTIPLIER[unit]
+    // 跟着百分号的是税率不是金额
+    if (/^\s*%/.test(source.slice(match.index + match[0].length))) continue
+    // 编号（凭证号 001 / 发票号 12345）不是金额：数字前是"号/编/期"，或数字后紧跟"号"
+    const before = source.slice(0, match.index).trimEnd()
+    if (/[号编]$/.test(before)) continue
+    if (/^\s*号/.test(source.slice(match.index + match[0].length))) continue
+    if (value <= 0) continue
+    if (!best || value > best.amount) best = { amount: value, raw: match[0].trim(), index: match.index }
+  }
+  return best || { amount: null, raw: '', index: -1 }
+}
+
+/**
+ * 推荐勾选：给出一进页面就能用的组合，而不是"全部勾上然后立刻报错"。
+ *
+ * 规则：互斥组只取第一行，其余行全部保留。
+ * 结果可能仍然需要用户拆分金额（例如"借 原材料+进项税 / 贷 银行存款"），
+ * 这是业务本身决定的，不能替用户编一个拆分比例。
+ */
+export function recommendedPicks(rule) {
+  const groups = new Map()
+  const picks = []
+  for (const line of rule.lines) {
+    if (!line.alt) { picks.push(lineKey(line)); continue }
+    if (groups.has(line.alt)) continue
+    groups.set(line.alt, true)
+    picks.push(lineKey(line))
+  }
+  return picks
+}
+
+/** 判断分录的形状：一对一 / 需要拆分多行 */
+export function entryShape(rule) {
+  const debit = rule.lines.filter((line) => line.side === D).length
+  const credit = rule.lines.filter((line) => line.side === C).length
+  return { debit, credit, mode: debit === 1 && credit === 1 ? 'single' : 'split' }
 }
 
 /**
  * 生成一张可借贷配平的凭证。
  *
- * 复式记账法：借贷必相等。处理顺序——
- *  1) 找出用户已指定的行（按 code + sub 匹配）；
- *  2) 若借贷两侧都有金额，必须相等，不等就报错；
- *  3) 只有一侧有金额，另一侧只有一行 → 自动把金额填到那一行；
- *  4) 两侧都是多行且只有一侧有金额 → 无法唯一确定，返回需要补充说明。
+ * 复式记账法：借贷必相等。金额用「每行一个金额」表达，
+ * 因为"一张凭证里一行对多行"是常态（借 原材料+进项税 / 贷 银行存款），
+ * 只给一个总额是拆不开的，上一版正是卡在这里。
  *
  * @param {object} rule JOURNAL_ENTRY_RULES 中的一条
- * @param {object} input { amount: number, side: 'debit'|'credit', picks: string[] }
- *   picks 是用户勾选参与本次业务的行（用 "code|sub" 标识，缺省为全部）
+ * @param {object} input
+ *   picks   — 勾选参与的行（`code|sub`，缺省为全部）
+ *   amounts — { [lineKey]: 金额 }，每行独立
+ *   amount / side — 旧写法：给一个总额并指定落在哪一侧；该侧恰好一行时才自动落
+ * @returns {{
+ *   rule, lines, balance, status, issues, message, hints,
+ *   balanced: boolean|null, amount: number|null, amounts: object
+ * }}
+ *   status: 'empty' 未填金额 | 'balanced' 已配平 | 'pending' 待配平 | 'error' 有冲突
  */
 export function buildEntry(rule, input = {}) {
-  const picks = Array.isArray(input.picks) && input.picks.length ? input.picks : rule.lines.map(lineKey)
+  const allKeys = rule.lines.map(lineKey)
+  // 注意：'未传 picks' 与 '传了空数组' 是两件事。
+  // 前者按"全部行"处理（库的默认行为），后者表示"用户一行都没勾"，必须真的是空。
+  const picks = Array.isArray(input.picks)
+    ? input.picks.filter((key) => allKeys.includes(key))
+    : allKeys
   const lines = rule.lines.filter((line) => picks.includes(lineKey(line)))
   const debitLines = lines.filter((line) => line.side === D)
   const creditLines = lines.filter((line) => line.side === C)
 
-  const amount = Number(input.amount)
-  const hasAmount = Number.isFinite(amount) && amount > 0
-  const requestedSide = input.side === C ? C : D
-
-  if (!hasAmount) {
-    return {
-      rule,
-      lines: lines.map((line) => ({ ...line, amount: null, account: accountByCode.get(line.code) })),
-      balanced: null,
-      amount: null,
-      message: '未填金额：只给出借贷方向。复式记账法要求借贷相等，填入金额后会自动配平。',
-      issues: []
+  const amounts = new Map()
+  if (input.amounts && typeof input.amounts === 'object') {
+    for (const [key, raw] of Object.entries(input.amounts)) {
+      const num = parseAmount(raw)
+      if (num !== null) amounts.set(key, num)
     }
   }
 
-  const issues = []
-  let balanced = false
-  let note = ''
+  const legacy = parseAmount(input.amount)
+  const legacySide = input.side === C ? C : D
+  const hints = []
+  if (legacy !== null && legacy !== 0) {
+    const sideLines = lines.filter((line) => line.side === legacySide)
+    const otherLines = lines.filter((line) => line.side !== legacySide)
+    if (sideLines.length === 1) {
+      amounts.set(lineKey(sideLines[0]), legacy)
+      if (otherLines.length === 1) amounts.set(lineKey(otherLines[0]), legacy)
+      else if (otherLines.length > 1) {
+        hints.push(`金额已落到${legacySide === D ? '借' : '贷'}方；另一侧有 ${otherLines.length} 行，需要分别填写金额。`)
+      }
+    } else {
+      hints.push(`${legacySide === D ? '借' : '贷'}方当前有 ${sideLines.length} 行，无法判断金额属于哪一行，请直接在各行填写金额。`)
+    }
+  }
 
+  const outLines = lines.map((line) => {
+    const key = lineKey(line)
+    const value = amounts.has(key) ? round2(amounts.get(key)) : null
+    return { ...line, amount: value, account: accountByCode.get(line.code) }
+  })
+  const balance = checkBalanced(outLines)
+  const filledCount = outLines.filter((line) => line.amount !== null).length
+
+  const issues = []
   // 互斥组被多选时报错：原图是备查式写法，同组只能发生一种业务
   const pickedAlts = new Map()
-  for (const line of lines) {
+  for (const line of outLines) {
     if (!line.alt) continue
     if (!pickedAlts.has(line.alt)) pickedAlts.set(line.alt, [])
     pickedAlts.get(line.alt).push(line)
   }
   for (const [group, groupLines] of pickedAlts) {
     if (groupLines.length > 1) {
-      issues.push(`「${group}」是多选一，当前选了 ${groupLines.length} 行（${groupLines.map((l) => l.note || l.code).join('、')}）。备查式分录只取实际发生的那一行。`)
+      issues.push(`「${group}」是多选一，当前选了 ${groupLines.length} 行（${groupLines.map((line) => line.note || line.code).join('、')}）。备查式分录只取实际发生的那一行。`)
     }
   }
 
-  if (debitLines.length === 1 && creditLines.length === 1) {
-    balanced = true
-    note = '一对一业务：借贷各一行且金额必然相等，金额自动落在两侧。'
-    const out = lines.map((line) => ({ ...line, amount, account: accountByCode.get(line.code) }))
-    return { rule, lines: out, balanced: issues.length ? false : true, amount, message: note, issues }
+  let status = 'empty'
+  if (issues.length) status = 'error'
+  else if (!filledCount) status = 'empty'
+  else if (balance.balanced) status = 'balanced'
+  else status = 'pending'
+
+  const shape = entryShape(rule)
+  if (status === 'pending') {
+    issues.length || hints.push(`借贷不等：借方 ${round2(balance.debit).toFixed(2)} / 贷方 ${round2(balance.credit).toFixed(2)}，差额 ${round2(balance.difference).toFixed(2)}。`)
+  }
+  if (status === 'empty') {
+    hints.push('未填金额：以下只给出借贷方向。复式记账法要求借贷必相等，填入金额后会自动校验。')
+  }
+  if (status === 'balanced' && shape.mode === 'split' && debitLines.length === 1 && creditLines.length === 1) {
+    // 一对一但原规则是多行：用户收窄到了单行
+    hints.push('已收窄为一对一业务，金额自动落在两侧。')
   }
 
-  if (debitLines.length !== creditLines.length) {
-    // 典型如"购料"：借方 2~3 行，贷方 1 行
-    const singleSide = debitLines.length === 1 ? D : C
-    if ((requestedSide === D && creditLines.length === 1) || (requestedSide === C && debitLines.length === 1)) {
-      issues.push('借贷行数不匹配：金额只能落到一侧，另一侧需要你说明哪几行参与。')
-    } else {
-      note = `多行对单行：金额填在${singleSide === D ? '借' : '贷'}方单行上，其余行请按实际业务勾选。`
-    }
-  } else {
-    issues.push('借贷行数相同但都多于一行，请把金额拆分到各行后重新配平。')
-  }
-
-  const mapAmount = (side) => (side === requestedSide ? amount : null)
   return {
     rule,
-    lines: lines.map((line) => ({ ...line, amount: mapAmount(line.side), account: accountByCode.get(line.code) })),
-    balanced,
-    amount,
-    message: note,
-    issues
+    lines: outLines,
+    balance,
+    shape,
+    status,
+    issues,
+    hints,
+    balanced: filledCount ? balance.balanced && issues.length === 0 : null,
+    amount: legacy,
+    amounts: Object.fromEntries(amounts),
+    message: hints.join(' ')
   }
 }
 
@@ -924,6 +1056,40 @@ export function checkBalanced(lines) {
 /** 行的稳定标识：code|sub */
 export function lineKey(line) {
   return `${line.code}|${line.sub || ''}`
+}
+
+/** 导出分录用的列定义 */
+export const ENTRY_EXPORT_HEADERS = ['业务', '序号', '方向', '科目代码', '科目名称', '明细科目', '金额(元)', '摘要/说明']
+
+/**
+ * 把一张分录组织成可导出的表格（金额不带千分位，Excel 可直接求和）。
+ *
+ * 第一列刻意放"业务"名称：导出的表经常要和多张凭证拼在一起，
+ * 没有业务名的话，落到 Excel 里就是一堆不知道属于哪笔业务的科目行。
+ *
+ * @param {object} rule
+ * @param {ReturnType<typeof buildEntry>} entry
+ */
+export function buildEntryExport(rule, entry) {
+  const lines = entry?.lines || []
+  const rows = lines.map((line, index) => {
+    const account = line.account || accountByCode.get(line.code)
+    return [
+      rule.title,
+      String(index + 1),
+      line.side === D ? '借' : '贷',
+      line.code,
+      account?.name || '',
+      line.sub || '',
+      line.amount === null || line.amount === undefined ? '' : round2(line.amount).toFixed(2),
+      line.note || ''
+    ]
+  })
+  const balance = entry?.balance || checkBalanced(lines)
+  rows.push([rule.title, '', '', '', '', '借方合计', round2(balance.debit).toFixed(2), ''])
+  rows.push([rule.title, '', '', '', '', '贷方合计', round2(balance.credit).toFixed(2), ''])
+  rows.push([rule.title, '', '', '', '', '差额', round2(balance.difference).toFixed(2), balance.balanced ? '借贷平衡' : '尚未配平'])
+  return { headers: ENTRY_EXPORT_HEADERS, rows, balanced: balance.balanced, rule }
 }
 
 function round2(value) {
