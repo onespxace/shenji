@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>Markdown 渲染验证数据</title></head>
+<body>
+<script>
+  const md = [
+    '## 收入截止测试要点',
+    '',
+    '对 **营业收入** 执行以下程序：',
+    '',
+    '1. 取得年末最后一周的 `发货单` 与发票，核对日期；',
+    '2. 对金额超过 **50,000** 元的交易扩大样本；',
+    '   - 重点检查控制权是否已转移；',
+    '   - 核对是否已确认收入，避免跨期。',
+    '',
+    '> 提示：异常仅作为待复核线索，不自动形成结论。',
+    '',
+    '| 样本 | 金额 | 结论 |',
+    '| --- | ---: | --- |',
+    '| INV-001 | 128,000 | 待复核 |',
+    '| INV-002 | 42,000 | 正常 |',
+    '',
+    '参考 [准则入口](https://example.com)，或执行：',
+    '',
+    '```sql',
+    'SELECT invoice_no, amount',
+    'FROM sales',
+    'WHERE ship_date > period_end;',
+    '```',
+    '',
+    '~~旧版做法~~ 已废弃。'
+  ].join('\n')
+
+  window.__seed = () => {
+    const conversations = [{
+      id: 'test-md',
+      title: '收入截止测试',
+      updatedAt: Date.now(),
+      messages: [
+        { role: 'user', content: '收入截止测试要重点做什么？', createdAt: Date.now() },
+        { role: 'assistant', content: md, createdAt: Date.now() }
+      ]
+    }]
+    localStorage.setItem('auditdesk_ai_conversations_v2', JSON.stringify(conversations))
+    localStorage.setItem('auditdesk_ai_settings_v2', JSON.stringify({
+      provider: 'deepseek',
+      deepseekKey: 'sk-placeholder-not-a-real-key',
+      deepseekBaseUrl: 'https://api.deepseek.com',
+      deepseekModel: 'deepseek-flash'
+    }))
+    return true
+  }
+</script>
+</body>
+</html>

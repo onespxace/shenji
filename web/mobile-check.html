@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>AuditDesk 移动端排版检查</title>
+<style>
+  body { margin: 0; background: #20293a; font-family: "Microsoft YaHei", sans-serif; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; padding: 14px; }
+  .device { background: #fff; border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.3); overflow: hidden; }
+  .device-label { padding: 6px 10px; color: #cfd8e8; font-size: 12px; text-align: center; background: #2c374b; }
+  iframe { display: block; border: 0; }
+  .w390  { width: 390px;  height: 780px; }
+  .w360  { width: 360px;  height: 740px; }
+  .w430  { width: 430px;  height: 860px; }
+  .w768  { width: 768px;  height: 900px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="device"><div class="device-label">iPhone 12/13/14 · 390px</div><iframe class="w390" data-view="analysis" src="/"></iframe></div>
+    <div class="device"><div class="device-label">小屏安卓 · 360px</div><iframe class="w360" data-view="accounting" src="/"></iframe></div>
+    <div class="device"><div class="device-label">iPhone Pro Max · 430px</div><iframe class="w430" data-view="chat" src="/"></iframe></div>
+    <div class="device"><div class="device-label">iPad 竖屏 · 768px</div><iframe class="w768" data-view="analysis" src="/"></iframe></div>
+  </div>
+<script>
+  const TAB_LABEL = { analysis: '数据分析', accounting: '会计基础', documents: '底稿', chat: 'AI 问答' }
+  const SHEET_LABEL = { knowledge: '法规速查', settings: '设置' }
+
+  function navigateIn(frame, viewId) {
+    const d = frame.contentDocument
+    const tabs = [...d.querySelectorAll('.app-tab')]
+    const label = TAB_LABEL[viewId]
+    if (label) {
+      const tab = tabs.find(t => t.innerText.trim() === label)
+      if (tab) { tab.click(); return true }
+    }
+    if (SHEET_LABEL[viewId]) {
+      const more = tabs[tabs.length - 1]
+      if (more) {
+        more.click()
+        setTimeout(() => {
+          const item = [...d.querySelectorAll('.more-sheet-item')].find(i => i.innerText.includes(SHEET_LABEL[viewId]))
+          if (item) item.click()
+        }, 200)
+        return true
+      }
+    }
+    return false
+  }
+
+  for (const frame of document.querySelectorAll('iframe')) {
+    frame.addEventListener('load', () => { frame.contentWindow.__navigateTo = (id) => navigateIn(frame, id) })
+  }
+  window.__go = (frameIndex, viewId) => {
+    const f = document.querySelectorAll('iframe')[frameIndex]
+    if (f.contentWindow.__navigateTo) return f.contentWindow.__navigateTo(viewId)
+    return navigateIn(f, viewId)
+  }
+</script>
+</body>
+</html>

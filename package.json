@@ -1,0 +1,60 @@
+{
+  "name": "auditdesk",
+  "version": "1.0.0",
+  "description": "AuditDesk - local-first financial audit workbench",
+  "main": "electron/main.js",
+  "author": "AuditDesk",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "web:preview": "npm --prefix web run preview",
+    "web:sync-ocr": "npm --prefix web run sync:ocr",
+    "web:brand": "npm --prefix web run make:brand",
+    "web:validate": "npm --prefix web run validate:all",
+    "web:export": "npm --prefix web run export:pages",
+    "pack:dir": "electron-builder --dir",
+    "pack:win": "electron-builder --win portable --x64",
+    "pack:win:dir": "electron-builder --win --x64 --dir"
+  },
+  "dependencies": {
+    "exceljs": "4.4.0",
+    "pdfjs-dist": "6.3.289",
+    "tesseract.js": "7.0.0"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.auditdesk.workbench",
+    "productName": "AuditDesk",
+    "artifactName": "AuditDesk-${version}-portable.${ext}",
+    "asar": true,
+    "compression": "normal",
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "resources/**/*",
+      "core/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "resources/vendor", "to": "vendor", "filter": ["**/*"] }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "artifactName": "AuditDesk-${version}-portable.${ext}",
+      "publish": []
+    },
+    "directories": {
+      "output": "release"
+    }
+  }
+}

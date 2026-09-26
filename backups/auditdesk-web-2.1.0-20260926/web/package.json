@@ -1,0 +1,23 @@
+{
+  "name": "auditdesk-web",
+  "version": "2.1.0",
+  "private": true,
+  "description": "AuditDesk Vue 3 local-first audit workbench",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "validate:tools": "node scripts/validate-tools.mjs",
+    "export:pages": "node scripts/export-pages.mjs"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "element-plus": "^2.14.6",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "vite": "^8.3.1"
+  }
+}

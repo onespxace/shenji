@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <title>AuditDesk · 财经审计工作台</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark">审</div>
+        <div><strong>AuditDesk</strong><span>财经审计工作台</span></div>
+      </div>
+      <div class="workspace-select" id="workspace-select">
+        <div class="workspace-avatar">A</div>
+        <div class="workspace-copy"><span>当前项目</span><strong id="sidebar-project">载入中…</strong></div>
+        <span class="chevron">⌄</span>
+      </div>
+      <div class="nav-caption">工作区</div>
+      <nav class="nav-list">
+        <button class="nav-item active" data-view="overview"><span class="nav-icon" data-icon="grid"></span><span>项目总览</span></button>
+        <button class="nav-item" data-view="data"><span class="nav-icon" data-icon="database"></span><span>数据与导入</span><span class="nav-badge" id="data-badge">0</span></button>
+        <button class="nav-item" data-view="procedures"><span class="nav-icon" data-icon="grid-tool"></span><span>审计程序</span><span class="nav-badge">7</span></button>
+        <button class="nav-item" data-view="knowledge"><span class="nav-icon" data-icon="book"></span><span>学习资料</span></button>
+        <button class="nav-item" data-view="evidence"><span class="nav-icon" data-icon="folder"></span><span>底稿与证据</span><span class="nav-badge" id="evidence-badge">0</span></button>
+      </nav>
+      <div class="nav-caption nav-caption-gap">系统</div>
+      <nav class="nav-list">
+        <button class="nav-item" data-view="settings"><span class="nav-icon" data-icon="settings"></span><span>项目设置</span></button>
+        <button class="nav-item" id="assistant-trigger"><span class="nav-icon" data-icon="spark"></span><span>研究助手</span><span class="assistant-mark">AI</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="local-status"><span class="status-dot"></span><div><strong>本地工作区</strong><span id="storage-status">未连接云端</span></div></div>
+        <div class="sidebar-footnote">AuditDesk 1.0 · 证据优先<br>所有数据默认留在本机</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left"><button class="mobile-menu" id="mobile-menu">☰</button><div class="crumb" id="crumb">项目总览</div></div>
+        <div class="topbar-actions">
+          <span class="context-pill"><span class="context-dot"></span><span id="context-period">2025 年度</span></span>
+          <button class="top-action" id="import-top"><span data-icon="upload"></span>导入数据</button>
+          <button class="top-action primary" id="save-top"><span data-icon="save"></span>保存项目</button>
+        </div>
+      </header>
+      <div class="content" id="content"></div>
+    </main>
+  </div>
+  <div class="toast-stack" id="toast-stack"></div>
+  <div id="modal-root"></div>
+  <script src="./renderer.js"></script>
+</body>
+</html>

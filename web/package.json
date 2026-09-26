@@ -1,0 +1,32 @@
+{
+  "name": "auditdesk-web",
+  "version": "2.2.0-dev.0",
+  "private": true,
+  "description": "AuditDesk Vue 3 local-first audit workbench",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/sync-ocr-assets.mjs",
+    "dev": "vite --host 0.0.0.0",
+    "prebuild": "node scripts/sync-ocr-assets.mjs",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "validate:tools": "node scripts/validate-tools.mjs",
+    "validate:accounting": "node scripts/validate-accounting.mjs",
+    "validate:markdown": "node scripts/validate-markdown.mjs",
+    "validate:typography": "node scripts/migrate-typography.mjs",
+    "validate:all": "npm run validate:tools && npm run validate:accounting && npm run validate:markdown && npm run validate:typography",
+    "sync:ocr": "node scripts/sync-ocr-assets.mjs",
+    "make:brand": "node scripts/make-brand-assets.mjs",
+    "export:pages": "node scripts/export-pages.mjs"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "element-plus": "^2.14.6",
+    "tesseract.js": "^7.0.0",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "vite": "^8.3.1"
+  }
+}

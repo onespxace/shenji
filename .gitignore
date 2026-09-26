@@ -1,0 +1,28 @@
+# 依赖
+node_modules/
+
+# 构建产物（可由 npm run web:build / web:export 重新生成）
+web/dist/
+github-pages/
+AuditDesk-GitHub-Pages.zip
+
+# Electron 打包产物（约 1.4 GB）
+release/
+
+# OCR 运行时与语言模型的本地副本（约 17.6 MB）。
+# 它们是 node_modules/tesseract.js* 与 resources/vendor/ocr 的拷贝，
+# 由 `npm run sync:ocr`（predev / prebuild / CI 会自动执行）生成，
+# 因此不入库，避免仓库体积翻倍。真正的模型源文件在 resources/vendor/ocr/。
+web/public/ocr/
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.tmp
+
+# 备份目录里的压缩包与解压目录内容重复，只保留解压目录
+backups/**/*.zip
