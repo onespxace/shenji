@@ -69,7 +69,10 @@ export async function paddleModelStatus() {
   const nonce = Date.now().toString(36)
   const checks = await Promise.all(
     paddleAssetManifest().map(async (asset) => {
-      const probeUrl = `${asset.url}?probe=${nonce}`
+      // asset.url 已带 ?v= 版本号，这里必须用 & 追加，不能再用 ?
+      // 否则会拼出 `?v=v2?probe=xxx` 这种双问号 URL。
+      const separator = asset.url.includes('?') ? '&' : '?'
+      const probeUrl = `${asset.url}${separator}probe=${nonce}`
       try {
         const res = await fetch(probeUrl, { headers: { Range: 'bytes=0-0' }, cache: 'no-store' })
         const ok = res.status === 200 || res.status === 206
