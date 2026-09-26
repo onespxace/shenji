@@ -38,17 +38,24 @@ export function paddleAssetManifest() {
 
 /**
  * 模型是否已随站点部署。
- * 站点可能在拉不到模型的情况下正常部署（此时回退 Tesseract），
- * 所以这里要能在初始化之前就给出明确原因，而不是让用户等 4 秒后看一堆 WASM 报错。
+ *
+ * 用 **Range GET**（只取 1 字节）而不是 HEAD：
+ * HEAD 在 GitHub Pages 上会被中断（net::ERR_ABORTED），
+ * 探测请求本身反而把要探测的资源搞崩了——本地 dev server 支持 HEAD，
+ * 所以这个问题只在真实部署环境才暴露。
  */
 export async function paddleModelStatus() {
   const checks = await Promise.all(
     paddleAssetManifest().map(async (asset) => {
       try {
-        const res = await fetch(asset.url, { method: 'HEAD' })
-        return { name: asset.name, ok: res.ok, approxBytes: asset.approxBytes }
+        const res = await fetch(asset.url, { headers: { Range: 'bytes=0-0' } })
+        // 200（忽略 Range）或 206（部分内容）都算可用
+        const ok = res.status === 200 || res.status === 206
+        // 读掉响应体，避免连接悬挂
+        await res.arrayBuffer().catch(() => null)
+        return { name: asset.name, ok, status: res.status, approxBytes: asset.approxBytes }
       } catch {
-        return { name: asset.name, ok: false, approxBytes: asset.approxBytes }
+        return { name: asset.name, ok: false, status: 0, approxBytes: asset.approxBytes }
       }
     })
   )
