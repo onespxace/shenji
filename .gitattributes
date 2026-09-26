@@ -11,3 +11,13 @@
 *.wasm binary
 *.exe binary
 *.zip binary
+
+# .tar 必须是 binary。PaddleOCR 的 PP-OCRv5 模型是未压缩 ustar，
+# 缺这一行会被上面的 `* text=auto eol=lf` 当成文本做换行归一化而损坏。
+# 2026-09-26 实际发生：4,843,520 B 的 det 模型被 git 存成 6,644,318 B，
+# 线上报 Entry "inference.onnx" was not found in the tar archive。
+*.tar binary
+*.onnx binary
+*.gz binary
+*.bin binary
+*.pt binary
