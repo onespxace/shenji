@@ -536,3 +536,42 @@ npx electron-builder --win portable --x64 --config.compression=store
 - 静态断言 **664 条 / 11 组，0 失败**。
 - 浏览器行为 **66 条**（29 交互 + 11 视口 + 11 懒加载 + 15 路由），控制台 **0 错误**。
 - 首屏 gzip 396.8 KB（`main` 单文件 256.7 KB），与上一版持平。
+
+## 2.2 第十批（跟进）：懒加载失败兜底
+
+用户报「底稿文书怎么一直在加载」。**查明是真实缺陷**，不是环境问题（环境问题也有一层，
+见下）。完整记录见 `docs/HANDOVER.md` §11。
+
+### 三层原因
+
+1. **环境**：我起的 `npx vite preview ... &` 后台服务在工具调用之间被回收了，
+   页面直接 `ERR_CONNECTION_REFUSED`。差点误判成产品 bug。
+2. **真实缺陷**：chunk 拉不下来时页面**一直转圈到超时然后空白**，用户没有任何出路。
+   根因是 `defineAsyncComponent` 的 `loadingComponent` **永远拿不到 `error`**
+   （Vue 只给 `errorComponent` 传），所以 `ViewLoading` 里那段"加载失败"UI 是**死代码**；
+   不提供 `errorComponent` 时 `fail()` 之后又什么都不渲染。
+3. **我修第 2 层时引入的回归**：改 `ViewLoading` 时把 `const props = defineProps(...)`
+   的 `const props =` 删了，模板里 `props.error` 抛类型错误，失败界面自己崩成**纯空白**。
+   被探针抓到——前提是先给探针加上了 `console.warn` 捕获（Vue 警告不是 error）。
+
+### 修法
+
+`App.vue` 的懒加载改为自管状态的 `lazyView`：140ms 后才显示占位；失败自动重试 2 次；
+失败界面只给**一个确定有效的出口**——带时间戳的文档级重载
+（普通 `location.reload()` 实测**无效**，浏览器会把那次失败的子资源记住），
+恢复正常后清掉临时参数；被 KeepAlive 保活的页面切回时若上次失败会自动重试。
+
+### 工具与断言
+
+- 新增 `npm run probe:prepare`（`build` 会清空 dist，探针页必须重新拷回去；
+  忘了拷就会"测一个 404 页面"，11 个视口全 FAIL 而 detail 只是一个 `{}`）。
+- 探针新增：场景 `expect` 前置检查、`console.warn` 捕获、步骤 `allowNavigation`、
+  非字符串 detail 自动 JSON 序列化。
+- **把五个懒加载页面的弱断言改严**：原来是 `innerText.includes('底稿')`，
+  而**导航栏里就有「底稿文书」**，恒真。现在改成"等页面内容出现且占位符不存在"。
+  这个缺陷第一次没被拦住，就是因为这批恒真断言。
+
+### 现状
+
+- `npm run probe:all` = **85 条浏览器断言，0 失败**（交互 29 + 前置检查 25 + 布局 11 +
+  懒加载 11 + 失败兜底 4 + 路由 15）；静态断言仍为 **664 条 / 11 组，0 失败**。

@@ -198,6 +198,7 @@ async function main() {
   let failed = 0
   let checks = 0
   const consoleErrors = []
+  const consoleWarnings = []
 
   try {
     await waitForDebugPort(DEBUG_PORT)
@@ -231,10 +232,56 @@ async function main() {
         if (/favicon/i.test(entry.url || '') || /favicon/i.test(entry.text || '')) return
         if (entry.level === 'error') consoleErrors.push(`[${view.name}] console.error: ${entry.text}`)
       })
+      // Vue 的警告走 console.warn，不是 error，不会被上面两条捕获到。
+      // 但"渲染出来是空白"这类问题，答案几乎总在那条 [Vue warn] 里。
+      cdp.on('Runtime.consoleAPICalled', (params) => {
+        if (params.type !== 'warning' && params.type !== 'error') return
+        const text = (params.args || []).map((a) => (a.value !== undefined ? a.value : a.description || a.type)).join(' ')
+        if (!text) return
+        if (/favicon/i.test(text)) return
+        const line = `[${view.name}] ${params.type}: ${String(text).split('\n')[0].slice(0, 300)}`
+        if (params.type === 'error') consoleErrors.push(line)
+        else consoleWarnings.push(line)
+      })
+
+      // 视图级 CDP 指令：用来在页面加载前布好网（如 Network.enable）。
+      // 场景里写 {"method": "...", "params": {...}}，比给每种需求加一个专用开关更耐用。
+      for (const command of view.cdp || []) {
+        await cdp.send(command.method, command.params || {}).catch((error) => {
+          console.log(`  （CDP ${command.method} 不可用：${error.message}）`)
+        })
+      }
 
       await sleep(scenario.settleMs ?? 2200)
 
+      // 失败要早、要说得清。
+      // 曾经出现过：探针页没被拷进 dist，preview 返回 404 页面，
+      // 场景里的表达式自然拿不到 window.__audit，最后打印出一个看不懂的 `{}`，
+      // 11 个视口全 FAIL 而没人知道是"测了个不存在的页面"。
+      // 声明 expect（一个必须为真的表达式）就能把这种情况变成一句人能懂的话。
+      if (view.expect) {
+        checks += 1
+        const probe = await cdp.send('Runtime.evaluate', {
+          expression: `(() => { try { return Boolean(${view.expect}) } catch (e) { return 'ERR:' + e.message } })()`,
+          returnByValue: true
+        }).catch((error) => ({ result: { value: `ERR:${error.message}` } }))
+        const value = probe.result?.value
+        if (value !== true) {
+          failed += 1
+          console.log(`  FAIL 目标页面前置检查 · 期望成立：${view.expect}｜实际：${value}`)
+          console.log('  ↳ 多半是目标页没出现在 dist/ 里（npm run build 会清空 dist）。先跑 npm run probe:prepare。')
+          continue
+        }
+        console.log(`  PASS 目标页面前置检查 · ${view.expect}`)
+      }
+
       for (const step of view.steps || []) {
+        // 步骤级 CDP 指令：可以在运行中改变网络条件（如拦截某个 chunk、之后放开）
+        for (const command of step.cdp || []) {
+          await cdp.send(command.method, command.params || {}).catch((error) => {
+            console.log(`  （CDP ${command.method} 不可用：${error.message}）`)
+          })
+        }
         checks += 1
         let outcome
         try {
@@ -249,7 +296,12 @@ async function main() {
             outcome = result.result?.value ?? { ok: false, detail: '表达式没有返回值' }
           }
         } catch (error) {
-          outcome = { ok: false, detail: error.message }
+          // 触发页面跳转/重载的步骤会让执行上下文消失，这属于预期行为，
+          // 由下一步（在新文档里）继续断言。用 allowNavigation 显式声明。
+          const navigated = /navigated or closed|Execution context was destroyed|Cannot find context/i.test(error.message)
+          outcome = navigated && step.allowNavigation
+            ? { ok: true, detail: '（本步触发了页面导航，已交由下一步断言）' }
+            : { ok: false, detail: error.message }
         }
 
         // 下载类步骤：等文件落盘，读回内容再核对
@@ -275,7 +327,12 @@ async function main() {
 
         const ok = outcome && outcome.ok === true
         if (!ok) failed += 1
-        console.log(`  ${ok ? 'PASS' : 'FAIL'} ${step.label}${ok ? (outcome.detail ? ` · ${outcome.detail}` : '') : ` · ${outcome?.detail || '未返回 ok'}`}`)
+        // detail 可能是对象（表达式把结构化诊断塞进来了），字符串化一下再打印，
+        // 否则只会看到 [object Object]，等于没有信息
+        const detail = outcome?.detail === undefined
+          ? ''
+          : typeof outcome.detail === 'string' ? outcome.detail : JSON.stringify(outcome.detail)
+        console.log(`  ${ok ? 'PASS' : 'FAIL'} ${step.label}${detail ? ` · ${detail}` : ''}`)
       }
     }
   } finally {
@@ -284,6 +341,13 @@ async function main() {
     }
     try { fs.rmSync(userDataDir, { recursive: true, force: true }) } catch { /* ignore */ }
     try { fs.rmSync(downloadDir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+
+  console.log('\n=== 控制台警告（不计入失败，但"渲染空白"的答案通常在这里）===')
+  if (!consoleWarnings.length) {
+    console.log('  无')
+  } else {
+    for (const line of [...new Set(consoleWarnings)].slice(0, 12)) console.log(`  ${line}`)
   }
 
   console.log('\n=== 控制台错误 ===')

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, defineComponent, h, markRaw, nextTick, onActivated, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue'
 import {
   DataAnalysis,
   Document,
@@ -162,32 +162,109 @@ const showPrivacyTag = computed(() => activeView.value !== 'chat')
  * nextTick 派发的事件会在组件挂载前发出，功能静默失效。
  * 其余 6 个页面按需加载——访问 AI 问答才拉 ChatView 与 ai-service，
  * 访问会计基础才拉分录知识库、利润计算器与 OCR 管线。
+ *
+ * 为什么不用 defineAsyncComponent 内建的 loading / error 组件（用过，有三个问题）：
+ *  1) Vue 只给 errorComponent 传 `error`，不给它重试回调，`retry` 只在 onError 里拿得到；
+ *  2) 不提供 errorComponent 时，fail() 之后**什么都不渲染**——用户看到的是白屏；
+ *  3) loadingComponent 永远拿不到 `error`，所以 ViewLoading 里那段「页面加载失败」
+ *     分支其实是**死代码**，从来没显示过。
+ * 结果就是：chunk 拉不下来（网络抖动、部署换哈希、服务停了）时，
+ * 用户只能看到「正在加载页面…」转圈转到 30 秒超时，然后白屏，没有任何出路。
+ * 这正是用户报「底稿文书怎么一直在加载」时暴露的真实缺陷。
+ *
+ * 自己管状态就能把三件事都做对：转圈只在真需要时出现、失败有明确界面、重试真的能点。
  */
-const asyncView = (loader) => defineAsyncComponent({
-  loader,
-  loadingComponent: ViewLoading,
-  // 120ms 内加载完就不闪占位，避免快网下出现一帧空白
-  delay: 120,
-  // chunk 拉取失败（网络抖动 / 缓存残缺）时允许重试，而不是白屏
-  timeout: 30000,
-  onError(error, retry, fail, attempts) {
-    if (attempts >= 2) {
-      fail()
-      return
+/**
+ * 资源加载失败后的出口。
+ *
+ * 为什么不是普通 location.reload()：实测把某个 chunk 请求打断、再放开拦截之后，
+ * 普通 reload **仍然失败**——Chrome 会把"这个子资源刚才失败了"记在渲染进程里，
+ * 同一个文档 URL 重载不会重新去取它，用户点几次都一样，等于出口是假的。
+ * 换一个带时间戳的文档 URL（location.replace）才会走一次全新的文档与资源请求。
+ */
+const RECOVER_PARAM = '_r'
+function reloadFresh() {
+  try {
+    const url = new URL(window.location.href)
+    url.searchParams.set(RECOVER_PARAM, String(Date.now()))
+    window.location.replace(url.toString())
+  } catch {
+    window.location.reload()
+  }
+}
+/** 恢复成功后把地址栏里的临时参数清掉，别留在用户的 URL 里 */
+function clearRecoverParam() {
+  try {
+    const url = new URL(window.location.href)
+    if (!url.searchParams.has(RECOVER_PARAM)) return
+    url.searchParams.delete(RECOVER_PARAM)
+    window.history.replaceState(null, '', url.toString())
+  } catch { /* 地址栏清理失败不影响使用 */ }
+}
+
+const lazyView = (name, loader) => defineComponent({
+  name,
+  setup() {
+    const phase = ref('pending')        // pending | ready | error
+    const comp = shallowRef(null)
+    const delayed = ref(false)
+    const attempts = ref(0)
+    // 140ms 内加载完就不闪占位，避免快网下出现一帧空白
+    const delayTimer = window.setTimeout(() => { delayed.value = true }, 140)
+
+    const attempt = async () => {
+      phase.value = 'pending'
+      delayed.value = false
+      window.clearTimeout(delayTimer)
+      const showTimer = window.setTimeout(() => { delayed.value = true }, 140)
+      // 网络抖动 / 残缺缓存：自动再试一次，两次都失败才交给用户
+      for (let i = 0; i < 2; i++) {
+        try {
+          const mod = await loader()
+          comp.value = markRaw(mod.default || mod)
+          phase.value = 'ready'
+          window.clearTimeout(showTimer)
+          clearRecoverParam()
+          return
+        } catch (error) {
+          attempts.value = i + 1
+          console.warn(`[lazy] ${name} 加载失败（第 ${attempts.value} 次）：`, error)
+        }
+      }
+      window.clearTimeout(showTimer)
+      phase.value = 'error'
     }
-    // 指数退避，避免立刻重试又立刻失败
-    window.setTimeout(retry, 400 * attempts)
+    attempt()
+
+    // 被 KeepAlive 保活的情况下，切走再切回不会重新挂载。
+    // 如果上次是失败状态，用户"离开再回来"应当等于一次重试——否则那个页面
+    // 在本次会话里就永远是失败界面，只能整页刷新。
+    let firstActivate = true
+    onActivated(() => {
+      if (firstActivate) { firstActivate = false; return }
+      if (phase.value === 'error') attempt()
+    })
+
+    return () => {
+      if (phase.value === 'ready' && comp.value) return h(comp.value)
+      if (phase.value === 'pending' && !delayed.value) return null
+      return h(ViewLoading, {
+        error: phase.value === 'error' ? '页面资源加载失败' : null,
+        attempts: attempts.value,
+        onReload: reloadFresh
+      })
+    }
   }
 })
 
 const VIEW_COMPONENTS = {
   analysis: AnalysisView,
-  accounting: asyncView(() => import('./views/AccountingView.vue')),
-  documents: asyncView(() => import('./views/DocumentsView.vue')),
-  knowledge: asyncView(() => import('./views/KnowledgeView.vue')),
-  chat: asyncView(() => import('./views/ChatView.vue')),
-  tutorial: asyncView(() => import('./views/TutorialView.vue')),
-  settings: asyncView(() => import('./views/SettingsView.vue'))
+  accounting: lazyView('AccountingView', () => import('./views/AccountingView.vue')),
+  documents: lazyView('DocumentsView', () => import('./views/DocumentsView.vue')),
+  knowledge: lazyView('KnowledgeView', () => import('./views/KnowledgeView.vue')),
+  chat: lazyView('ChatView', () => import('./views/ChatView.vue')),
+  tutorial: lazyView('TutorialView', () => import('./views/TutorialView.vue')),
+  settings: lazyView('SettingsView', () => import('./views/SettingsView.vue'))
 }
 const activeComponent = computed(() => VIEW_COMPONENTS[activeView.value] || AnalysisView)
 

@@ -1,0 +1,52 @@
+{
+  "settleMs": 2500,
+  "views": [
+    {
+      "name": "懒加载失败兜底",
+      "route": "#/analysis",
+      "cdp": [
+        {
+          "method": "Network.enable"
+        }
+      ],
+      "steps": [
+        {
+          "label": "chunk 拉不下来时显示「页面加载失败」，而不是一直转圈",
+          "cdp": [
+            {
+              "method": "Network.setBlockedURLs",
+              "params": {
+                "urls": [
+                  "*DocumentsView*"
+                ]
+              }
+            }
+          ],
+          "run": "const nav=async()=>{ let b=[...document.querySelectorAll('.top-nav-item')].find(x=>x.textContent.trim()==='底稿文书'); if(!b){ const more=document.querySelector('.top-nav-more'); if(more){ more.click(); await new Promise(r=>setTimeout(r,450)); b=[...document.querySelectorAll('.el-dropdown-menu__item')].find(el=>el.textContent.trim()==='底稿文书') } } if(!b) return false; b.click(); return true }; if(!await nav()) return {ok:false,detail:'找不到导航项'}; const deadline=Date.now()+25000; let t=''; while(Date.now()<deadline){ t=document.body.innerText; if(t.includes('页面加载失败')||t.includes('选择底稿')) break; await new Promise(r=>setTimeout(r,500)) } const failed=t.includes('页面加载失败'); const spinning=!!document.querySelector('.view-loading-dot'); const stuck=t.includes('正在加载页面'); const main=document.querySelector('main'); const dl=w=>{try{return performance.getEntriesByType('resource').map(e=>e.name).filter(u=>/DocumentsView/.test(u))}catch(e){return ['?']}}; const diag={ hash:location.hash, viewLoading:!!document.querySelector('.view-loading'), mainHtml:(main?main.innerHTML:'').replace(/\\s+/g,' ').slice(0,220), docChunks:dl() }; return { ok: failed && !spinning && !stuck, detail: 'failed='+failed+' 仍在转圈='+spinning+' 文案残留='+stuck+' '+JSON.stringify(diag) }"
+        },
+        {
+          "label": "失败界面有一个确定可用的出口，且不留死按钮",
+          "run": "const btns=[...document.querySelectorAll('.view-loading button')]; const labels=btns.map(b=>b.textContent.trim()); return { ok: btns.length===1 && labels[0].includes('重新加载页面') && !btns[0].disabled && !document.querySelector('.view-loading-dot'), detail: '按钮='+JSON.stringify(labels) }"
+        },
+        {
+          "label": "放开拦截后点「重新加载页面」（点击本身即触发整页重载）",
+          "allowNavigation": true,
+          "cdp": [
+            {
+              "method": "Network.setBlockedURLs",
+              "params": {
+                "urls": []
+              }
+            }
+          ],
+          "run": "const b=[...document.querySelectorAll('.view-loading button')].find(x=>x.textContent.includes('重新加载页面')); if(!b) return {ok:false,detail:'没有出口按钮'}; b.click(); await new Promise(r=>setTimeout(r,2000)); return { ok:true, detail:'已触发重新加载' }"
+        },
+        {
+          "label": "重新加载后底稿文书真正渲染出来",
+          "run": "const deadline=Date.now()+30000; let t=''; while(Date.now()<deadline){ t=document.body.innerText; if(t.includes('选择底稿')||t.includes('页面加载失败')) break; await new Promise(r=>setTimeout(r,500)) } const diag={ href:location.href, recoverParam:location.search.includes('_r='), viewLoading:!!document.querySelector('.view-loading'), docChunks:performance.getEntriesByType('resource').map(e=>e.name).filter(u=>/DocumentsView/.test(u)).map(u=>u.split('/').pop()) }; return { ok: t.includes('选择底稿') && !document.querySelector('.view-loading'), detail: JSON.stringify(diag) }"
+        }
+      ],
+      "expect": "!!document.querySelector('#app')?.children.length"
+    }
+  ]
+}

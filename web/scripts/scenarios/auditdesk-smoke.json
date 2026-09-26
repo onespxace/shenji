@@ -17,21 +17,23 @@
           "label": "执行分析产生结果表或指标卡",
           "run": "const ok0 = await __btn('执行分析'); if(!ok0) return {ok:false,detail:'找不到执行分析按钮'}; await new Promise(r=>setTimeout(r,1200)); const rows=document.querySelectorAll('.data-table tbody tr').length; const metrics=document.querySelectorAll('.metric-box').length; const t=document.body.innerText; return { ok: rows>0 || metrics>0, detail: 'rows='+rows+' metrics='+metrics+' error='+t.includes('失败') }"
         }
-      ]
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "会计基础 · 科目分类识别",
       "route": "#/accounting",
       "steps": [
         {
-          "label": "页面挂载",
-          "run": "return { ok: document.body.innerText.includes('常用科目'), detail: '未渲染科目区' }"
+          "label": "页面挂载（含懒加载完成）",
+          "run": "const deadline=Date.now()+15000; while(Date.now()<deadline){ if(!document.querySelector('.view-loading')&&document.body.innerText.includes('常用科目')) break; await new Promise(r=>setTimeout(r,400)) } return { ok: !document.querySelector('.view-loading') && document.body.innerText.includes('常用科目'), detail: '占位符='+!!document.querySelector('.view-loading') }"
         },
         {
           "label": "识别「库存现金」返回结果",
           "run": "const i=__inputByPh('输入六类中的任意科目'); if(!i) return {ok:false,detail:'无输入框'}; __set(i,'库存现金'); await new Promise(r=>setTimeout(r,200)); await __btn('识别分类'); return { ok: document.body.innerText.includes('资产') && !!document.querySelector('.classification-result'), detail: '未出现分类结果' }"
         }
-      ]
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "会计基础 · 凭证完整性检查",
@@ -41,7 +43,8 @@
           "label": "切到凭证页并载入完整样例后检查",
           "run": "if(!await __tab('凭证完整性检查')) return {ok:false,detail:'无凭证标签'}; if(!await __btn('载入完整样例')) return {ok:false,detail:'无样例按钮'}; await __btn('检查凭证'); return { ok: document.body.innerText.includes('形式检查结果'), detail: '未出现检查结果' }"
         }
-      ]
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "会计基础 · 基础问答",
@@ -51,7 +54,8 @@
           "label": "提问「会计六要素是什么？」",
           "run": "if(!await __tab('基础问答')) return {ok:false,detail:'无问答标签'}; const chip=__text('.model-chip','六要素'); if(!chip) return {ok:false,detail:'无快捷问题'}; chip.click(); await new Promise(r=>setTimeout(r,500)); return { ok: !!document.querySelector('.answer-card'), detail: '未出现回答' }"
         }
-      ]
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "会计基础 · 利润计算",
@@ -81,10 +85,18 @@
           "label": "导出表格：真实下载并校验内容",
           "download": true,
           "expectFilePrefix": "利润计算表-",
-          "expectContains": ["类别,项目,说明,数值,单位,状态", "净利润", "1032300.00", "主营业务收入", "恒等式校验", "投资净收益"],
+          "expectContains": [
+            "类别,项目,说明,数值,单位,状态",
+            "净利润",
+            "1032300.00",
+            "主营业务收入",
+            "恒等式校验",
+            "投资净收益"
+          ],
           "run": "if(!await __btn('载入示例')) return {ok:false,detail:'无法恢复示例'}; const b=__text('button','导出表格'); if(!b) return {ok:false,detail:'没有导出表格按钮'}; b.click(); await new Promise(r=>setTimeout(r,600)); return { ok:true }"
         }
-      ]
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "会计基础 · 分录生成",
@@ -122,10 +134,16 @@
           "label": "导出分录：真实下载并校验内容",
           "download": true,
           "expectFilePrefix": "会计分录-",
-          "expectContains": ["业务,序号,方向,科目代码,科目名称,明细科目,金额(元),摘要/说明", "应收账款收回", "50000.00", "借贷平衡"],
+          "expectContains": [
+            "业务,序号,方向,科目代码,科目名称,明细科目,金额(元),摘要/说明",
+            "应收账款收回",
+            "50000.00",
+            "借贷平衡"
+          ],
           "run": "const i=__inputByPh('例如：收到股东投资款'); __set(i,'应收账款收回 50000'); await new Promise(r=>setTimeout(r,200)); await __btn('生成分录'); const b=__text('button','导出表格'); if(!b) return {ok:false,detail:'没有导出表格按钮'}; b.click(); await new Promise(r=>setTimeout(r,600)); return { ok:true }"
         }
-      ]
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "路由（真实浏览器前进后退）",
@@ -139,46 +157,67 @@
           "label": "非法 hash 不清空界面",
           "run": "location.hash='#/不存在的视图'; await new Promise(r=>setTimeout(r,700)); const t=document.body.innerText; return { ok: t.includes('数据分析') || t.includes('利润率'), detail: '非法 hash 后页面文本长度='+t.length }"
         }
-      ]
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "底稿文书",
       "route": "#/documents",
       "steps": [
-        { "label": "页面挂载", "run": "return { ok: document.body.innerText.includes('底稿'), detail: '未渲染' }" },
+        {
+          "label": "懒加载页面真的渲染出内容（不是停在占位符）",
+          "run": "const deadline=Date.now()+15000; let t=''; while(Date.now()<deadline){ t=document.body.innerText; if(t.includes('选择底稿')||t.includes('页面加载失败')) break; await new Promise(r=>setTimeout(r,400)) } const placeholder=!!document.querySelector('.view-loading'); return { ok: t.includes('选择底稿') && !placeholder, detail: 'content='+t.includes('选择底稿')+' 占位符='+placeholder+' failed='+t.includes('页面加载失败') }"
+        },
         {
           "label": "存货盘点差异不出现浮点尾巴（0.3−0.1 应为 -0.20）",
           "run": "const t=__text('.template-option','存货监盘表'); if(!t) return {ok:false,detail:'无盘点模板'}; t.click(); await new Promise(r=>setTimeout(r,500)); const row=document.querySelector('.el-table__body-wrapper tbody tr, .el-table tbody tr'); if(!row) return {ok:false,detail:'无盘点行'}; const ins=row.querySelectorAll('input'); if(ins.length<3) return {ok:false,detail:'盘点行输入框不足'}; __set(ins[1],'0.3'); await new Promise(r=>setTimeout(r,150)); __set(ins[2],'0.1'); await new Promise(r=>setTimeout(r,250)); const cells=[...row.querySelectorAll('td')].map(td=>td.textContent.trim()); return { ok: cells.includes('-0.20'), detail: '差异单元格='+JSON.stringify(cells) }"
         }
-      ]
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "法规速查",
       "route": "#/knowledge",
       "steps": [
-        { "label": "页面挂载", "run": "return { ok: document.querySelectorAll('.el-collapse-item, .surface').length > 0, detail: '未渲染' }" }
-      ]
+        {
+          "label": "懒加载页面真的渲染出内容（不是停在占位符）",
+          "run": "const deadline=Date.now()+15000; let t=''; while(Date.now()<deadline){ t=document.body.innerText; if(!document.querySelector('.view-loading')&&document.querySelector('main').innerText.length>200) break; await new Promise(r=>setTimeout(r,400)) } const main=document.querySelector('main'); return { ok: !document.querySelector('.view-loading') && main.innerText.length>200, detail: 'main长度='+main.innerText.length+' 占位符='+!!document.querySelector('.view-loading') }"
+        }
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "AI 问答",
       "route": "#/chat",
       "steps": [
-        { "label": "页面挂载", "run": "return { ok: document.body.innerText.includes('AI') || document.body.innerText.includes('问答'), detail: '未渲染' }" }
-      ]
+        {
+          "label": "懒加载页面真的渲染出内容（不是停在占位符）",
+          "run": "const deadline=Date.now()+15000; let t=''; while(Date.now()<deadline){ t=document.body.innerText; if(!document.querySelector('.view-loading')&&document.querySelector('main').innerText.length>200) break; await new Promise(r=>setTimeout(r,400)) } const main=document.querySelector('main'); return { ok: !document.querySelector('.view-loading') && main.innerText.length>200, detail: 'main长度='+main.innerText.length+' 占位符='+!!document.querySelector('.view-loading') }"
+        }
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "使用教程",
       "route": "#/tutorial",
       "steps": [
-        { "label": "页面挂载", "run": "return { ok: document.body.innerText.includes('教程') || document.body.innerText.includes('用例'), detail: '未渲染' }" }
-      ]
+        {
+          "label": "懒加载页面真的渲染出内容（不是停在占位符）",
+          "run": "const deadline=Date.now()+15000; let t=''; while(Date.now()<deadline){ t=document.body.innerText; if(!document.querySelector('.view-loading')&&document.querySelector('main').innerText.length>200) break; await new Promise(r=>setTimeout(r,400)) } const main=document.querySelector('main'); return { ok: !document.querySelector('.view-loading') && main.innerText.length>200, detail: 'main长度='+main.innerText.length+' 占位符='+!!document.querySelector('.view-loading') }"
+        }
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     },
     {
       "name": "设置",
       "route": "#/settings",
       "steps": [
-        { "label": "页面挂载", "run": "return { ok: document.querySelectorAll('input, .el-select').length > 0, detail: '未渲染表单' }" }
-      ]
+        {
+          "label": "懒加载页面真的渲染出表单（不是停在占位符）",
+          "run": "const deadline=Date.now()+15000; while(Date.now()<deadline){ if(!document.querySelector('.view-loading')&&document.querySelectorAll('input, .el-select').length>0) break; await new Promise(r=>setTimeout(r,400)) } return { ok: !document.querySelector('.view-loading') && document.querySelectorAll('input, .el-select').length>0, detail: '表单控件='+document.querySelectorAll('input, .el-select').length+' 占位符='+!!document.querySelector('.view-loading') }"
+        }
+      ],
+      "expect": "document.querySelector('#app')?.children.length > 0"
     }
   ]
 }
