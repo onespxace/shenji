@@ -112,9 +112,9 @@ export const PADDLE_MISSING_HINT =
  * `max-age=600`，用户最长 10 分钟内会继续加载旧 bundle，反复撞同一个错。
  * 所以这里必须识别它并换 URL 重试，而不是把英文原文抛给用户。
  */
-function isPoisonedCacheError(error) {
+export function isPoisonedCacheError(error) {
   const text = `${error?.message || ''} ${error?.name || ''}`
-  return /was not found in the tar archive|Failed to download|network error|ERR_ABORTED/i.test(text)
+  return /was not found in the tar archive|Failed to download|network error|ERR_ABORTED|failed to fetch/i.test(text)
 }
 
 async function createPaddleInstance({ backend, worker, wasmPaths }) {

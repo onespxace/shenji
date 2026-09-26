@@ -330,6 +330,19 @@ const q = assessQuality(gray, 400, 300, { minSharpness: 5, minContrast: 10, good
 check('质量闸门仍可用（管线复用同一实现）', q.level === 'good', `${q.level}/${q.score}`)
 check('灰度统计仍正确', analyzeGray(gray, 400, 300).std > 20)
 
+// ---------------- 缓存污染错误的识别与自愈 ----------------
+// 这段逻辑决定"要不要换 URL 重试"，判错就等于自愈机制失效且无人察觉，
+// 所以必须直接对它下断言，而不是靠"线上没报错"间接相信。
+import { isPoisonedCacheError } from '../src/ocr/engines/paddle-engine.js'
+
+check('识别 tar 条目缺失（用户实际遇到的那条）', isPoisonedCacheError(new Error('Entry "inference.onnx" was not found in the tar archive.')) === true)
+check('识别下载失败', isPoisonedCacheError(new Error('Failed to download https://x/model.tar: HTTP 404')) === true)
+check('识别网络中断', isPoisonedCacheError(new Error('net::ERR_ABORTED')) === true)
+check('识别 fetch 失败', isPoisonedCacheError(new TypeError('Failed to fetch')) === true)
+check('模型文件损坏不算缓存问题（不重试）', isPoisonedCacheError(new Error('Unexpected end of JSON input')) === false)
+check('空错误不算缓存问题', isPoisonedCacheError(null) === false, String(isPoisonedCacheError(null)))
+check('undefined 不抛错', (() => { try { return isPoisonedCacheError(undefined) === false } catch { return false } })())
+
 for (const item of results) console.log(`${item.passed ? 'PASS' : 'FAIL'} ${item.name}${item.detail && !item.passed ? ` · ${item.detail}` : ''}`)
 const passed = results.filter((r) => r.passed).length
 console.log(`\n${passed}/${results.length} 个凭证结构化识别断言通过`)
