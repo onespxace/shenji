@@ -13,7 +13,7 @@
 推送到 `main` 或 `master` 分支后，GitHub Actions 会自动：
 
 1. 安装 `web/` 依赖；
-2. 运行 `npm run validate:all`（8 组检查，共 494 条断言：工具样例 / 会计与凭证 /
+2. 运行 `npm run validate:all`（8 组检查，共 498 条断言：工具样例 / 会计与凭证 /
    拍摄质量 / Markdown / 教学用例 / PPT 渲染 / 字号下限 / 无 BOM）；
 3. 构建 Vue 静态站点；
 4. 发布 `web/dist/` 到 GitHub Pages。

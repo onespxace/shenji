@@ -194,12 +194,12 @@ export const SLIDES = [
       { value: '8/8', label: '审计程序样例' },
       { value: '46/46', label: '会计与凭证断言' },
       { value: '82/82', label: '利润与分录断言' },
-      { value: '123/123', label: '结构化识别断言' },
+      { value: '128/128', label: '结构化识别断言' },
       { value: '20/20', label: '拍摄质量断言' },
       { value: '28/28', label: 'Markdown 渲染' },
       { value: '0', label: '小于 12px 的字号' }
     ],
-    note: '合计 494 条断言，全部由 npm run validate:all 执行，GitHub Actions 每次推送都会跑。'
+    note: '合计 498 条断言，全部由 npm run validate:all 执行，GitHub Actions 每次推送都会跑。'
   },
   {
     id: 'cases',
