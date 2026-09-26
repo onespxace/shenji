@@ -6,6 +6,7 @@ import process from 'node:process'
 import { groupIntoRows, extractFields, COLUMN_HEADERS } from '../src/ocr/pipeline/field-extractor.js'
 import {
   FIELD_IDS,
+  FIELD_LABELS as FIELD_LABELS_ALL,
   validateAccount,
   validateAmount,
   validateAttachmentCount,
@@ -118,6 +119,28 @@ check('每个字段都带 bbox', [...f.values()].every((v) => v.bbox && typeof v
 check('表头 6 种角色都有定义', COLUMN_HEADERS.length === 6, String(COLUMN_HEADERS.length))
 check('空输入不抛错', (() => { try { extractFields([]); return true } catch { return false } })())
 check('无表头时退回不崩', (() => { try { extractFields([{ text: '随便', score: 0.9, x: 0, y: 0, width: 50, height: 20, cy: 10, cx: 25 }]); return true } catch { return false } })())
+
+// 同一字段出现两次（分录行 + 合计行）且后者分数更高时，不能丢掉 field 键。
+// 踩过的坑：用裸 payload 覆盖 → field 变 undefined → 界面标签渲染成空。
+// 注意表头必须 ≥2 个才会走表格分支，所以这里给全 5 列。
+const dupLines = [
+  { text: '摘要', score: 1, x: 60, y: 160, width: 40, height: 22, cy: 171, cx: 80 },
+  { text: '总账科目', score: 1, x: 220, y: 160, width: 80, height: 22, cy: 171, cx: 260 },
+  { text: '明细科目', score: 1, x: 340, y: 160, width: 80, height: 22, cy: 171, cx: 380 },
+  { text: '借方金额', score: 1, x: 460, y: 160, width: 80, height: 22, cy: 171, cx: 500 },
+  { text: '贷方金额', score: 1, x: 580, y: 160, width: 80, height: 22, cy: 171, cx: 620 },
+  { text: '银行存款', score: 0.9, x: 220, y: 190, width: 80, height: 22, cy: 201, cx: 260 },
+  { text: '300000.00', score: 0.9, x: 460, y: 190, width: 100, height: 22, cy: 201, cx: 510 },
+  { text: '合计', score: 1, x: 60, y: 250, width: 40, height: 22, cy: 261, cx: 80 },
+  { text: '300000.00', score: 0.99, x: 460, y: 250, width: 100, height: 22, cy: 261, cx: 510 }
+]
+const dup = extractFields(dupLines)
+const dupDebit = dup.fields.get(FIELD_IDS.debitAmount)
+check('重复字段仍保留 field 键', dupDebit?.field === FIELD_IDS.debitAmount, String(dupDebit?.field))
+check('重复字段能取到中文标签', (FIELD_LABELS_ALL[dupDebit?.field] || '') !== '', FIELD_LABELS_ALL[dupDebit?.field])
+check('重复字段采用分数更高的一次', dupDebit?.score === 0.99, String(dupDebit?.score))
+check('重复字段记录全部候选', (dupDebit?.alternatives || []).length >= 1, String((dupDebit?.alternatives || []).length))
+check('所有字段都有非空 field 键', [...dup.fields.values()].every((f) => typeof f.field === 'string' && f.field), '有字段缺 field')
 
 // ---------------- 日期校验 ----------------
 

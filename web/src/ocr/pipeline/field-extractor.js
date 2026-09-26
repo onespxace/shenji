@@ -94,10 +94,15 @@ export function extractFields(lines) {
 
   const put = (fieldId, payload) => {
     const existing = fields.get(fieldId)
-    // 同一字段多次出现：保留分数高的一次，但记录全部候选
     if (existing) {
-      existing.alternatives = [...(existing.alternatives || []), { value: payload.value, score: payload.score, bbox: payload.bbox }]
-      if ((payload.score || 0) > (existing.score || 0)) fields.set(fieldId, payload)
+      const alternatives = [...(existing.alternatives || []), { value: payload.value, score: payload.score, bbox: payload.bbox }]
+      if ((payload.score || 0) > (existing.score || 0)) {
+        // 必须重新带上 field / alternatives：用裸 payload 覆盖会把 field 键丢掉，
+        // 下游 FIELD_LABELS[field.field] 取到 undefined，界面上标签变空。
+        fields.set(fieldId, { ...existing, ...payload, field: fieldId, alternatives })
+      } else {
+        existing.alternatives = alternatives
+      }
       return
     }
     fields.set(fieldId, { field: fieldId, value: '', score: 0, bbox: null, alternatives: [], ...payload })
