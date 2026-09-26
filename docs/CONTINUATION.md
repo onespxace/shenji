@@ -409,3 +409,77 @@ npx electron-builder --win portable --x64 --config.compression=store
 
 浏览器真机验证：A-scan 逐字段面板整体 92%「可靠」，
 `建行基本戶`（PP-OCRv5 输出繁体戶）被字典约束判为 47%「需要人工复核」并拒绝自动改写。
+## 2.2 第八批：修部署事故 —— 模型入库 + 失败可降级
+
+### 事故经过
+
+第六批把 PaddleOCR 模型接进 `prebuild` 的 `npm run sync:paddle`。
+该脚本从 `paddle-model-ecology.bj.bcebos.com` 拉取 20.55MB 模型。
+
+推上去后 **CI 26 秒就挂了**（此前成功构建需 35~40 秒），
+`https://onespxace.github.io/shenji/` 连续 9 分钟仍是旧 bundle。
+
+**根因：把整站可用性绑在了一个第三方 CDN 上。** runner 拉不到模型 →
+`sync-paddle-assets.mjs` 抛错 → `prebuild` 失败 → `build` 失败 → `deploy` 被跳过。
+站点直接瘫在旧版本上。
+
+这是本次改动引入的真实风险，不是配置疏漏。
+
+### 修法（三层）
+
+1. **模型入库**：20.55MB 的 `.tar` 随仓库提交到 `web/public/ocr/paddle/`。
+   CI 不再依赖任何外部模型源。`.gitignore` 改为
+   `web/public/ocr/*` + `!web/public/ocr/paddle/`；
+   tessdata（17.6MB，本地可从 `node_modules` 生成）仍然不入库。
+2. **脚本失败可降级**：`sync-paddle-assets.mjs` 默认拉不到只警告并 `exit 0`，
+   站点照常部署，凭证识别回退 Tesseract。本地排障可加 `--strict` 恢复严格模式。
+3. **工作流不阻断**：新增 `Ensure PaddleOCR models (non-blocking)` 步骤，
+   `continue-on-error: true`，仅作兜底自愈。
+
+另外在**引擎与界面**也做了降级：
+`paddleModelStatus()` 在初始化前用 `HEAD` 探测模型是否随站点部署；
+缺失时抛 `code = PADDLE_MODELS_MISSING` 的明确错误，
+而不是让用户等 4 秒后看一堆 WASM 报错。界面提示
+"可改用 Tesseract 继续，准确率较低但可用"，并给一键切换按钮。
+
+### 模型获取
+
+通过本机代理 `127.0.0.1:7897` 从官方源拉取，**9 秒完成**（2.1~2.3 MB/s）：
+
+| 模型 | 大小 | 校验 |
+| --- | --- | --- |
+| PP-OCRv5_mobile_det | 4,843,520 B | 与官方一致，未压缩 ustar |
+| PP-OCRv5_mobile_rec | 16,701,440 B | 同上 |
+
+`tar -tf` 确认含 `inference.onnx` + `inference.yml`（PaddleOCR.js 不解 `.tar.gz`）。
+
+### 顺带修掉的 2 个 bug
+
+1. **`assessImage` 未导入**。质量闸门挂在 `try/catch` 里，
+   `TypeError: assessImage is not a function` 被当成"评估失败"吞掉，
+   闸门永远不显示。症状是"选图后没有提示"，排查时先看 console 才定位到。
+   现在额外加了一道 `typeof assessImage !== 'function'` 的显式抛错 + `console.warn`，
+   避免再次静默。
+2. **`qualityOverride` 重复声明**导致构建失败。
+
+### 质量闸门前移（验收项，此前漏实现）
+
+要求是"在 OCR 开始前就检测，不合格就不要直接 OCR"。上一批只在 OCR 跑完后
+显示闸门，等于形同虚设。本次补上：
+
+- 选图后**立即**评估，不等 OCR
+- `poor` 时拦下 OCR，提示"继续识别可能造成字段缺失"
+- 给出**「重新拍摄」与「仍要继续识别」**两个显式选择，不再默默识别
+
+### 真机验证（最难的 D-photo 翻拍图）
+
+- 选图即判 **18 分**，列出 3 条原因（模糊 / 对比度不足 / 过曝），OCR 被拦住
+- 选择「仍要继续识别」后：整体 **90%**
+  - 借方金额、贷方金额、日期、凭证编号、摘要、总账科目 均「可靠」
+  - 明细科目 `建行基本户` **45%「需要人工复核」**（字典外，**未自动改写**）
+  - 签名单列一栏「存在签名」，并注明不构成身份证明
+
+### 代价
+
+仓库体积从约 54MB 增至约 75MB（+20.55MB 模型）。
+这是为"部署确定性"付的费用：宁可仓库大一点，也不能让整站被一个 CDN 拖下线。
